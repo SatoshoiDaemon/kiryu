@@ -1,6 +1,10 @@
 .env
-/certs
+.env.*
+!.env.example
+/certs/
 /node_modules/
+/coverage/
 /dist/
+/logs/
 *.zip
 npm-debug.log*

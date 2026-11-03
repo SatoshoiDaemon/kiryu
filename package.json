@@ -1,0 +1,39 @@
+{
+  "name": "kiryu",
+  "version": "1.0.0",
+  "description": "Bot do servidor Eternity Realms",
+  "main": "src/index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "db:setup": "node scripts/setupDatabase.js",
+    "test": "jest --runInBand"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SatoshoiDaemon/kiryu.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "UNLICENSED",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/SatoshoiDaemon/kiryu/issues"
+  },
+  "homepage": "https://github.com/SatoshoiDaemon/kiryu#readme",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "devDependencies": {
+    "jest": "^30.5.2"
+  },
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "discord.js": "^14.28.0",
+    "dotenv": "^18.0.9",
+    "mongoose": "^9.11.4",
+    "winston": "^3.19.0"
+  }
+}
