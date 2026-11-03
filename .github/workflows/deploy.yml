@@ -23,5 +23,5 @@ jobs:
       - name: Deploy and restart Square Cloud app
         uses: squarecloudofc/github-action@v2
         with:
-          token: ${{ secrets.SQUARECLOUD_API_KEY }}
+          token: ${{ secrets.SQUARECLOUD_API_TOKEN }}
           command: commit 09e5147f116d46eba2ff92ed5a583dd0 --restart

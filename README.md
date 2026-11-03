@@ -35,6 +35,6 @@ Execute npm test. A suíte cobre as regras de negócio sem conectar ao Discord o
 
 O workflow `.github/workflows/deploy.yml` envia o código ao app `09e5147f116d46eba2ff92ed5a583dd0` e o reinicia a cada push em `main`. Também é possível iniciar o deploy manualmente pela aba **Actions** do GitHub.
 
-Antes do primeiro deploy automatizado, crie uma API key em [squarecloud.app/account/security](https://squarecloud.app/account/security) e salve-a no repositório GitHub como secret `SQUARECLOUD_API_KEY` (**Settings → Secrets and variables → Actions**). Configure as variáveis do `.env` e os certificados MongoDB diretamente na Square Cloud; não coloque esses valores no workflow ou no repositório.
+O workflow usa o secret `SQUARECLOUD_API_TOKEN` do repositório GitHub (**Settings → Secrets and variables → Actions**). Configure as variáveis do `.env` e os certificados MongoDB diretamente na Square Cloud; não coloque esses valores no workflow ou no repositório.
 
 Para o primeiro envio, faça o deploy pelo workflow ou pelo painel da Square Cloud. O `squarecloud.app` e o script `start` já apontam para `src/index.js`.
