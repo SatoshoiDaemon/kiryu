@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { isAuthorized } = require('../../modules/permissions');
 const { replyV2 } = require('../../modules/components');
 const { grantXp, subtractXp, grantLevels, subtractLevels, getProfile } = require('../../modules/xpService');
@@ -21,7 +21,7 @@ function createAdminCommand(name, description) {
   async function execute(interaction) {
     const allowed = await isAuthorized(interaction.member, interaction.user.id, interaction.guildId);
     if (!allowed) {
-      await interaction.reply({ content: 'Você não tem permissão para usar este comando.', flags: MessageFlags.Ephemeral });
+      await replyV2(interaction, 'Você não tem permissão para usar este comando.', { ephemeral: true });
       return;
     }
 
@@ -39,7 +39,7 @@ function createAdminCommand(name, description) {
     await replyV2(interaction, '## ' + heading + '\n' + user + ': ' + operation.label + ' (**' + actualAmount + ' ' + quantityLabel + '**).\n**Nível:** ' + profile.level + ' · **XP atual:** ' + profile.xp, { ephemeral: true });
   }
 
-  return { data, execute };
+  return { data, execute, deferEphemeral: true };
 }
 
 module.exports = { createAdminCommand };

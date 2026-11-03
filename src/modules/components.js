@@ -11,7 +11,11 @@ function createContainer(content, rows = [], accentColor = 0x5865F2) {
 async function replyV2(interaction, content, options = {}) {
   const container = createContainer(content, options.rows || [], options.accentColor);
   if (interaction.deferred || interaction.replied) {
-    return interaction.editReply({ components: [container], allowedMentions: { parse: [] } });
+    return interaction.editReply({
+      components: [container],
+      flags: MessageFlags.IsComponentsV2,
+      allowedMentions: { parse: [] },
+    });
   }
   return interaction.reply({
     components: [container],

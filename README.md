@@ -31,13 +31,10 @@ O arquivo .env existente pode continuar usando o nome antigo DICORD_TOKEN; DISCO
 
 Execute npm test. A suíte cobre as regras de negócio sem conectar ao Discord ou ao MongoDB.
 
-## Primeiro envio manual à Square Cloud
+## Deploy na Square Cloud
 
-O squarecloud.app e o script start já apontam para src/index.js. No painel da Square Cloud:
+O workflow `.github/workflows/deploy.yml` envia o código ao app `09e5147f116d46eba2ff92ed5a583dd0` e o reinicia a cada push em `main`. Também é possível iniciar o deploy manualmente pela aba **Actions** do GitHub.
 
-1. Cadastre a aplicação manualmente e configure as variáveis do .env nos segredos/variáveis da aplicação.
-2. Envie o código com package.json, package-lock.json, src/, scripts/ e squarecloud.app.
-3. Transfira os certificados para a aplicação por um canal seguro e configure os caminhos correspondentes. Não inclua .env no pacote.
-4. Inicie a aplicação pelo painel e verifique os logs de conexão ao MongoDB.
+Antes do primeiro deploy automatizado, crie uma API key em [squarecloud.app/account/security](https://squarecloud.app/account/security) e salve-a no repositório GitHub como secret `SQUARECLOUD_API_KEY` (**Settings → Secrets and variables → Actions**). Configure as variáveis do `.env` e os certificados MongoDB diretamente na Square Cloud; não coloque esses valores no workflow ou no repositório.
 
-O deploy automatizado por GitHub Actions ainda não está configurado.
+Para o primeiro envio, faça o deploy pelo workflow ou pelo painel da Square Cloud. O `squarecloud.app` e o script `start` já apontam para `src/index.js`.
