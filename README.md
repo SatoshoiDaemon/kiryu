@@ -5,7 +5,7 @@ Bot do servidor Eternity Realms com XP, níveis, economia, inventário, lojas, c
 ## Requisitos
 
 - Node.js 20.19 ou superior
-- MongoDB em replica set (necessário para transações de compras e alterações de saldo/estoque)
+- MongoDB; `/trabalhar`, `/daily` e operações de saldo funcionam também em servidor standalone
 - Aplicação Discord com os intents Guild Members, Message Content e Guild Voice States habilitados no Developer Portal
 - Certificados MongoDB locais em certs/ (a pasta não é versionada)
 
@@ -48,7 +48,9 @@ Subcomandos administrativos mais usados:
 
 O Discord não permite que `/loja` abra diretamente uma loja e também tenha subcomandos abaixo dela. Por isso, as duas opções são `/loja fragmentos` e `/loja orbes`. A criação de itens oferece um painel interativo para configurar preço/estoque, disponibilidade, inventário/entrega e ações seguras em etapas.
 
-As compras e operações que alteram múltiplos documentos usam transações MongoDB; a instância conectada precisa estar configurada como replica set. Se o banco atual for standalone, habilite replica set antes de usar as lojas e recompensas.
+Saldo, cooldowns de `/trabalhar` e `/daily`, depósitos, saques e conversões são atualizados atomicamente em um único documento de conta e funcionam em MongoDB standalone. O registro de histórico é gravado em seguida; se essa gravação falhar, o saldo permanece correto e o bot registra o problema.
+
+Operações que alteram vários documentos como uma única ação — por exemplo, compras com estoque e inventário e algumas coletas de recompensa — ainda usam transações e exigem MongoDB em replica set. Em standalone, essas operações falham com uma mensagem explicativa; recompensas e operações de saldo continuam disponíveis.
 
 ## Testes
 
@@ -62,19 +64,10 @@ O workflow usa o secret `SQUARECLOUD_API_TOKEN` do repositório GitHub (**Settin
 
 Para o primeiro envio, faça o deploy pelo workflow ou pelo painel da Square Cloud. O `squarecloud.app` e o script `start` já apontam para `src/index.js`.
 
-### Erro MongoServerError em comandos econômicos
+### Erro MongoServerError
 
-Se `/trabalhar` falhar após duas operações de conta e o log indicar
-`This MongoDB deployment does not support retryable writes` ou
-`Transaction numbers are only allowed on a replica set member or mongos`,
-o servidor MongoDB está sem suporte a transações. Isso também afeta `/daily`,
-banco, conversões de Orbes, compras, uso/entrega de itens, coletas e alterações
-administrativas que usam transações.
-
-Configure um replica set no provedor MongoDB (ou migre para um cluster com suporte
-a transações), ajuste `MONGODB_URI` para esse cluster e reinicie o bot. Adicionar
-`retryWrites=false` não habilita transações em um servidor standalone. Não remova
-as transações: elas mantêm saldo, estoque, inventário e histórico consistentes.
-Os logs de falhas agora incluem a mensagem e o código do servidor, com as
-credenciais de conexão ocultadas. O aviso de `new` do Mongoose é independente
-dessa falha; as consultas usam `returnDocument: 'after'`.
+MongoDB standalone não oferece transações entre vários documentos. Se uma compra,
+entrega de item ou coleta que precise alterar vários registros falhar com esse
+erro, configure um replica set para essas funções. `/trabalhar`, `/daily`, banco
+e conversões de Orbes não dependem dele. Adicionar `retryWrites=false` não ativa
+transações. Os logs incluem mensagem e código do servidor, ocultando credenciais.
