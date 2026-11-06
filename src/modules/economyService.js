@@ -55,14 +55,24 @@ async function getAccount(guildId, userId) {
 
 async function getSettings(guildId) {
   let settings = await EconomySettings.findById(guildId);
-  if (settings) return settings;
-  try {
-    settings = await EconomySettings.create({ _id: guildId });
-    return settings;
-  } catch (error) {
-    if (error?.code !== 11000) throw error;
-    return EconomySettings.findById(guildId);
+  if (!settings) {
+    try {
+      settings = await EconomySettings.create({ _id: guildId });
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      settings = await EconomySettings.findById(guildId);
+    }
   }
+  if (!settings?.daily || settings.daily.orbsConfigured) return settings;
+
+  // Existing settings predate the default daily orb. Initialize them once, but
+  // use a conditional update so a concurrent admin configuration wins.
+  const migrated = await EconomySettings.findOneAndUpdate(
+    { _id: guildId, 'daily.orbsConfigured': { $ne: true } },
+    { $set: { 'daily.orbs.green': 1, 'daily.orbsConfigured': true } },
+    { returnDocument: 'after' },
+  );
+  return migrated || EconomySettings.findById(guildId);
 }
 
 function auditRecord(data, session) {

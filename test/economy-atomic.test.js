@@ -3,7 +3,7 @@ jest.mock('../src/database', () => ({
   EconomyItem: { findOne: jest.fn(), findOneAndUpdate: jest.fn() },
   EconomyInventory: { findOneAndUpdate: jest.fn(), insertMany: jest.fn(), findOne: jest.fn(), deleteOne: jest.fn(), updateOne: jest.fn() },
   EconomyTransaction: { findOne: jest.fn(), create: jest.fn() },
-  EconomySettings: { findById: jest.fn(), create: jest.fn() },
+  EconomySettings: { findById: jest.fn(), findOneAndUpdate: jest.fn(), create: jest.fn() },
   EconomyCollectRule: { find: jest.fn() },
   EconomyClaim: { find: jest.fn(), insertMany: jest.fn() },
 }));
@@ -13,7 +13,7 @@ jest.mock('../src/logger', () => ({ error: jest.fn() }));
 const mongoose = require('mongoose');
 const logger = require('../src/logger');
 const db = require('../src/database');
-const { inTransaction, claimWork, bankTransfer, buyItem, claimDaily, convertOrbes, getClaimableRules, claimCollectRules, useInventoryItem } = require('../src/modules/economyService');
+const { inTransaction, getSettings, claimWork, bankTransfer, buyItem, claimDaily, convertOrbes, getClaimableRules, claimCollectRules, useInventoryItem } = require('../src/modules/economyService');
 
 function doc(values = {}) {
   return { ...values, toObject: () => ({ ...values }) };
@@ -61,6 +61,18 @@ describe('atomicidade das operações econômicas', () => {
     await expect(claimWork({ guildId: 'g', userId: 'u', random: () => 250 }))
       .resolves.toMatchObject({ reward: 250, account: { wallet: 250 } });
     expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('histórico econômico'));
+  });
+
+  test('settings existentes recebem uma Orbe verde diária só uma vez', async () => {
+    const migrated = { daily: { orbs: { green: 1 }, orbsConfigured: true } };
+    db.EconomySettings.findById.mockResolvedValue({ daily: { orbsConfigured: false } });
+    db.EconomySettings.findOneAndUpdate.mockResolvedValue(migrated);
+    await expect(getSettings('g')).resolves.toBe(migrated);
+    expect(db.EconomySettings.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: 'g', 'daily.orbsConfigured': { $ne: true } },
+      { $set: { 'daily.orbs.green': 1, 'daily.orbsConfigured': true } },
+      { returnDocument: 'after' },
+    );
   });
 
   test.each([
@@ -157,7 +169,7 @@ describe('atomicidade das operações econômicas', () => {
     const now = new Date('2026-11-06T12:00:00Z');
     const previousClaim = new Date('2026-11-06T11:00:00Z');
     const account = doc({ wallet: 500, bank: 0, orbs: { green: 1 } });
-    db.EconomySettings.findById.mockResolvedValue({ daily: { fragments: 500, cooldownMs: 86400000, orbs: { green: 1 } } });
+    db.EconomySettings.findById.mockResolvedValue({ daily: { fragments: 500, cooldownMs: 86400000, orbs: { green: 1 }, orbsConfigured: true } });
     db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(account).mockResolvedValueOnce(null);
     db.EconomyAccount.findOne.mockReturnValue(query({ lastDailyAt: previousClaim }));
 
@@ -166,6 +178,22 @@ describe('atomicidade das operações econômicas', () => {
     expect(db.EconomyAccount.findOneAndUpdate.mock.calls[1][0].$or[2].lastDailyAt.$lte)
       .toEqual(new Date(now.getTime() - 86400000));
     expect(db.EconomyTransaction.create).not.toHaveBeenCalled();
+  });
+
+  test('/daily credita Fragmentos e cada categoria de Orbe na mesma atualização de conta', async () => {
+    const now = Date.now();
+    const updated = doc({ wallet: 500, orbs: { green: 1, blue: 2 }, lastDailyAt: new Date(now) });
+    db.EconomySettings.findById.mockResolvedValue({ daily: {
+      fragments: 500, cooldownMs: 86400000, orbsConfigured: true,
+      orbs: { green: 1, blue: 2, orange: 0, red: 0, black: 0, gold: 0 },
+    } });
+    db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(doc({ wallet: 0 })).mockResolvedValueOnce(updated);
+
+    await expect(claimDaily({ guildId: 'g', userId: 'u', now }))
+      .resolves.toMatchObject({ fragments: 500, orbs: { green: 1, blue: 2 }, account: { wallet: 500 } });
+    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[1][1].$inc)
+      .toEqual({ wallet: 500, 'orbs.green': 1, 'orbs.blue': 2 });
+    expect(mongoose.startSession).not.toHaveBeenCalled();
   });
 
   test('conversão de Orbes usa filtro de saldo atômico', async () => {

@@ -18,7 +18,8 @@ const economySettingsSchema = new mongoose.Schema({
   },
   daily: {
     fragments: { type: Number, default: 500, min: 0, validate: (value) => value == null || Number.isSafeInteger(value) },
-    orbs: { type: orbRewardsSchema, default: () => ({}) },
+    orbs: { type: orbRewardsSchema, default: () => ({ green: 1 }) },
+    orbsConfigured: { type: Boolean, default: false },
     cooldownMs: { type: Number, default: 86400000, min: 60000, validate: (value) => value == null || Number.isSafeInteger(value) },
   },
 }, { timestamps: true, versionKey: false });
