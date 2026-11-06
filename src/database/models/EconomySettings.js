@@ -1,12 +1,22 @@
 const mongoose = require('mongoose');
 
-const orbRewardsSchema = new mongoose.Schema({
-  green: { type: Number, default: 0, min: 0, validate: (value) => value == null || Number.isSafeInteger(value) },
-  blue: { type: Number, default: 0, min: 0, validate: (value) => value == null || Number.isSafeInteger(value) },
-  orange: { type: Number, default: 0, min: 0, validate: (value) => value == null || Number.isSafeInteger(value) },
-  red: { type: Number, default: 0, min: 0, validate: (value) => value == null || Number.isSafeInteger(value) },
-  black: { type: Number, default: 0, min: 0, validate: (value) => value == null || Number.isSafeInteger(value) },
-  gold: { type: Number, default: 0, min: 0, validate: (value) => value == null || Number.isSafeInteger(value) },
+const rewardRangeSchema = new mongoose.Schema({
+  min: { type: Number, default: 0, min: 0, validate: (value) => value == null || Number.isSafeInteger(value) },
+  max: { type: Number, default: 0, min: 0, validate: (value) => value == null || Number.isSafeInteger(value) },
+}, { _id: false });
+
+const orbRewardRangesSchema = new mongoose.Schema({
+  green: { type: rewardRangeSchema, default: () => ({ min: 10, max: 100 }) },
+  blue: { type: rewardRangeSchema, default: () => ({ min: 10, max: 50 }) },
+  orange: { type: rewardRangeSchema, default: () => ({ min: 5, max: 10 }) },
+  red: { type: rewardRangeSchema, default: () => ({ min: 0, max: 0 }) },
+  black: { type: rewardRangeSchema, default: () => ({ min: 0, max: 0 }) },
+  gold: { type: rewardRangeSchema, default: () => ({ min: 0, max: 0 }) },
+}, { _id: false });
+
+const dailyRewardRangesSchema = new mongoose.Schema({
+  fragments: { type: rewardRangeSchema, default: () => ({ min: 400, max: 1000 }) },
+  orbs: { type: orbRewardRangesSchema, default: () => ({}) },
 }, { _id: false });
 
 const economySettingsSchema = new mongoose.Schema({
@@ -17,9 +27,8 @@ const economySettingsSchema = new mongoose.Schema({
     cooldownMs: { type: Number, default: 3600000, min: 0, validate: (value) => value == null || Number.isSafeInteger(value) },
   },
   daily: {
-    fragments: { type: Number, default: 500, min: 0, validate: (value) => value == null || Number.isSafeInteger(value) },
-    orbs: { type: orbRewardsSchema, default: () => ({ green: 1 }) },
-    orbsConfigured: { type: Boolean, default: false },
+    rewardRanges: { type: dailyRewardRangesSchema, default: () => ({}) },
+    rangesConfigured: { type: Boolean, default: false },
     cooldownMs: { type: Number, default: 86400000, min: 60000, validate: (value) => value == null || Number.isSafeInteger(value) },
   },
 }, { timestamps: true, versionKey: false });

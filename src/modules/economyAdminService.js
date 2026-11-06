@@ -66,17 +66,28 @@ async function configureWork({ guildId, actorId, min, max, cooldownMinutes }) {
   return settings;
 }
 
-async function configureDaily({ guildId, actorId, fragments, cooldownHours, orbs }) {
-  assertAmount(fragments, 'Fragmentos diários', { min: 0, max: MAX_AMOUNT });
+function validateRewardRange(range, label) {
+  if (!range) throw new RangeError('Informe os limites de ' + label + '.');
+  assertAmount(range.min, label + ' mínimo', { min: 0, max: MAX_AMOUNT });
+  assertAmount(range.max, label + ' máximo', { min: 0, max: MAX_AMOUNT });
+  if (range.min > range.max) throw new RangeError('O mínimo de ' + label + ' não pode superar o máximo.');
+  return { min: range.min, max: range.max };
+}
+
+async function configureDaily({ guildId, actorId, fragmentRange, cooldownHours, orbRanges = {} }) {
+  const fragments = validateRewardRange(fragmentRange, 'Fragmentos diários');
   assertAmount(cooldownHours, 'Cooldown em horas', { min: 1, max: 8760 });
-  for (const type of ORB_TYPES) assertAmount(Number(orbs[type] || 0), 'Recompensa de Orbes', { min: 0, max: MAX_AMOUNT });
+  const orbs = Object.fromEntries(ORB_TYPES.map((type) => [
+    type,
+    validateRewardRange(orbRanges[type] || { min: 0, max: 0 }, 'Orbes ' + type),
+  ]));
   const settings = await getSettings(guildId);
-  settings.daily.fragments = fragments;
+  settings.daily.rewardRanges.fragments = fragments;
   settings.daily.cooldownMs = cooldownHours * 3600000;
-  for (const type of ORB_TYPES) settings.daily.orbs[type] = Number(orbs[type] || 0);
-  settings.daily.orbsConfigured = true;
+  for (const type of ORB_TYPES) settings.daily.rewardRanges.orbs[type] = orbs[type];
+  settings.daily.rangesConfigured = true;
   await settings.save();
-  await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_daily_config', currency: 'mixed', amount: fragments, details: { cooldownHours, orbs } });
+  await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_daily_config', currency: 'mixed', amount: fragments.min, details: { cooldownHours, fragments, orbs } });
   return settings;
 }
 

@@ -63,13 +63,22 @@ async function getSettings(guildId) {
       settings = await EconomySettings.findById(guildId);
     }
   }
-  if (!settings?.daily || settings.daily.orbsConfigured) return settings;
+  if (!settings?.daily || settings.daily.rangesConfigured) return settings;
 
-  // Existing settings predate the default daily orb. Initialize them once, but
-  // use a conditional update so a concurrent admin configuration wins.
+  // Initialize old settings once with the daily ranges requested for the game.
+  // The conditional update lets a concurrent admin configuration win.
   const migrated = await EconomySettings.findOneAndUpdate(
-    { _id: guildId, 'daily.orbsConfigured': { $ne: true } },
-    { $set: { 'daily.orbs.green': 1, 'daily.orbsConfigured': true } },
+    { _id: guildId, 'daily.rangesConfigured': { $ne: true } },
+    { $set: {
+      'daily.rewardRanges.fragments': { min: 400, max: 1000 },
+      'daily.rewardRanges.orbs.green': { min: 10, max: 100 },
+      'daily.rewardRanges.orbs.blue': { min: 10, max: 50 },
+      'daily.rewardRanges.orbs.orange': { min: 5, max: 10 },
+      'daily.rewardRanges.orbs.red': { min: 0, max: 0 },
+      'daily.rewardRanges.orbs.black': { min: 0, max: 0 },
+      'daily.rewardRanges.orbs.gold': { min: 0, max: 0 },
+      'daily.rangesConfigured': true,
+    } },
     { returnDocument: 'after' },
   );
   return migrated || EconomySettings.findById(guildId);
@@ -183,11 +192,15 @@ async function claimWork({ guildId, userId, now = Date.now(), random = crypto.ra
   return { account: account.toObject ? account.toObject() : account, reward, settings };
 }
 
-async function claimDaily({ guildId, userId, now = Date.now() }) {
+async function claimDaily({ guildId, userId, now = Date.now(), random = crypto.randomInt }) {
   const settings = await getSettings(guildId);
   await ensureAccount(guildId, userId);
-  const fragments = settings.daily.fragments;
-  const orbs = Object.fromEntries(ORB_TYPES.map((type) => [type, Number(settings.daily.orbs[type] || 0)]));
+  const ranges = settings.daily.rewardRanges;
+  const fragments = random(ranges.fragments.min, ranges.fragments.max + 1);
+  const orbs = Object.fromEntries(ORB_TYPES.map((type) => {
+    const range = ranges.orbs[type];
+    return [type, random(range.min, range.max + 1)];
+  }));
   const cutoff = new Date(now - settings.daily.cooldownMs);
   const update = { $set: { lastDailyAt: new Date(now) }, $inc: { wallet: fragments } };
   const orbDelta = {};

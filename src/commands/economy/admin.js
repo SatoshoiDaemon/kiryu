@@ -51,15 +51,7 @@ const data = new SlashCommandBuilder()
     .addIntegerOption((o) => o.setName('minimo').setDescription('Recompensa mínima em Fragmentos').setRequired(true).setMinValue(0).setMaxValue(1000000000000))
     .addIntegerOption((o) => o.setName('maximo').setDescription('Recompensa máxima em Fragmentos').setRequired(true).setMinValue(0).setMaxValue(1000000000000))
     .addIntegerOption((o) => o.setName('cooldown_minutos').setDescription('Cooldown em minutos').setRequired(true).setMinValue(1).setMaxValue(525600)))
-  .addSubcommand((s) => s.setName('daily-config').setDescription('Configura a recompensa e o cooldown diário')
-    .addIntegerOption((o) => o.setName('fragmentos').setDescription('Fragmentos entregues').setRequired(true).setMinValue(0).setMaxValue(1000000000000))
-    .addIntegerOption((o) => o.setName('cooldown_horas').setDescription('Cooldown em horas').setRequired(true).setMinValue(1).setMaxValue(8760))
-    .addIntegerOption((o) => o.setName('verde').setDescription('Orbes verdes').setMinValue(0).setMaxValue(1000000000000))
-    .addIntegerOption((o) => o.setName('azul').setDescription('Orbes azuis').setMinValue(0).setMaxValue(1000000000000))
-    .addIntegerOption((o) => o.setName('laranja').setDescription('Orbes laranjas').setMinValue(0).setMaxValue(1000000000000))
-    .addIntegerOption((o) => o.setName('vermelha').setDescription('Orbes vermelhas').setMinValue(0).setMaxValue(1000000000000))
-    .addIntegerOption((o) => o.setName('preta').setDescription('Orbes pretas').setMinValue(0).setMaxValue(1000000000000))
-    .addIntegerOption((o) => o.setName('dourada').setDescription('Orbes douradas').setMinValue(0).setMaxValue(1000000000000)))
+  .addSubcommand((s) => addDailyConfigOptions(s.setName('daily-config').setDescription('Configura faixas aleatórias e cooldown do daily')))
   .addSubcommand((s) => addRuleOptions(s.setName('regra-criar').setDescription('Cria uma recompensa periódica vinculada a cargo'), true))
   .addSubcommand((s) => addRuleOptions(s.setName('regra-editar').setDescription('Edita uma recompensa periódica existente'), false))
   .addSubcommand((s) => s.setName('regra-excluir').setDescription('Desativa uma regra de coleta')
@@ -78,6 +70,20 @@ const data = new SlashCommandBuilder()
     .addUserOption((o) => o.setName('usuario').setDescription('Filtrar por usuário').setRequired(false))
     .addIntegerOption((o) => o.setName('limite').setDescription('Registros por página (máximo 10)').setRequired(false).setMinValue(1).setMaxValue(10))
     .addIntegerOption((o) => o.setName('pagina').setDescription('Página do histórico, começando em 0').setRequired(false).setMinValue(0).setMaxValue(10000)));
+
+function addDailyRangeOptions(command, name, label) {
+  return command
+    .addIntegerOption((option) => option.setName(name + '_min').setDescription(label + ' mínimo').setRequired(true).setMinValue(0).setMaxValue(1000000000000))
+    .addIntegerOption((option) => option.setName(name + '_max').setDescription(label + ' máximo').setRequired(true).setMinValue(0).setMaxValue(1000000000000));
+}
+
+function addDailyConfigOptions(command) {
+  addDailyRangeOptions(command, 'fragmentos', 'Fragmentos diários');
+  addDailyRangeOptions(command, 'verde', 'Orbes verdes');
+  addDailyRangeOptions(command, 'azul', 'Orbes azuis');
+  addDailyRangeOptions(command, 'laranja', 'Orbes laranjas');
+  return command.addIntegerOption((option) => option.setName('cooldown_horas').setDescription('Cooldown em horas').setRequired(true).setMinValue(1).setMaxValue(8760));
+}
 
 function orbTypeOption(option, name = 'categoria', description = 'Categoria da Orbe') {
   return option.setName(name).setDescription(description).addChoices(...ORB_TYPES.map((type) => ({ name: ORBS[type].label, value: type })));
@@ -257,10 +263,30 @@ async function execute(interaction) {
   }
 
   if (sub === 'daily-config') {
-    const orbs = Object.fromEntries(ORB_TYPES.map((type) => [type, interaction.options.getInteger(orbOptionName(type)) || 0]));
-    await configureDaily({ guildId, actorId, fragments: interaction.options.getInteger('fragmentos'), cooldownHours: interaction.options.getInteger('cooldown_horas'), orbs });
-    const rewards = ORB_TYPES.filter((type) => orbs[type]).map((type) => orbs[type] + ' ' + ORBS[type].emoji).join(' · ') || 'nenhuma';
-    await replyV2(interaction, '# Recompensa diária configurada\n**Fragmentos:** ' + formatFragments(interaction.options.getInteger('fragmentos')) + '\n**Orbes:** ' + rewards + '\n**Cooldown:** ' + interaction.options.getInteger('cooldown_horas') + ' hora(s).', { ephemeral: true, accentColor: 0x008C52 });
+    const readRange = (name) => ({
+      min: interaction.options.getInteger(name + '_min'),
+      max: interaction.options.getInteger(name + '_max'),
+    });
+    const fragmentRange = readRange('fragmentos');
+    const orbRanges = {
+      green: readRange('verde'),
+      blue: readRange('azul'),
+      orange: readRange('laranja'),
+      red: { min: 0, max: 0 },
+      black: { min: 0, max: 0 },
+      gold: { min: 0, max: 0 },
+    };
+    const cooldownHours = interaction.options.getInteger('cooldown_horas');
+    await configureDaily({ guildId, actorId, fragmentRange, cooldownHours, orbRanges });
+    const displayRange = ({ min, max }) => min === max
+      ? min.toLocaleString('pt-BR')
+      : min.toLocaleString('pt-BR') + '–' + max.toLocaleString('pt-BR');
+    const rewards = [
+      '**Fragmentos:** ' + displayRange(fragmentRange),
+      ...[['green', 'Verdes'], ['blue', 'Azuis'], ['orange', 'Laranjas']]
+        .map(([type, label]) => '**Orbes ' + label + ':** ' + displayRange(orbRanges[type]) + ' ' + ORBS[type].emoji),
+    ].join('\n');
+    await replyV2(interaction, '# Recompensa diária configurada\n' + rewards + '\n**Cooldown:** ' + cooldownHours + ' hora(s).', { ephemeral: true, accentColor: 0x008C52 });
     return;
   }
 
