@@ -73,7 +73,7 @@ function storeContainer(items, currency, page, pages, now = new Date()) {
       const description = String(item.description || 'Sem descrição.').slice(0, 950);
       const itemText = '**' + (item.emoji || '📦') + ' ' + item.name + '**\n' + description + '\n\n' + status;
       const button = new ButtonBuilder()
-        .setCustomId('econ:store:buy:' + item._id + ':' + currency + ':' + page)
+        .setCustomId('econ:store:buy:' + item._id + ':' + currency + ':' + page + ':' + index)
         .setLabel((item.price * item.purchaseQuantity).toLocaleString('pt-BR'))
         .setStyle(ButtonStyle.Success)
         .setDisabled(!itemAvailability(item, now).available);
@@ -88,8 +88,8 @@ function storeContainer(items, currency, page, pages, now = new Date()) {
   container.addSeparatorComponents(new SeparatorBuilder());
   container.addTextDisplayComponents(new TextDisplayBuilder().setContent('Página **' + (page + 1) + '/' + pages + '** · Use os botões para navegar.'));
   container.addActionRowComponents(new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('econ:store:page:' + currency + ':' + Math.max(0, page - 1)).setLabel('Página anterior').setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
-    new ButtonBuilder().setCustomId('econ:store:page:' + currency + ':' + Math.min(pages - 1, page + 1)).setLabel('Próxima página').setStyle(ButtonStyle.Primary).setDisabled(page >= pages - 1),
+    new ButtonBuilder().setCustomId('econ:store:page:' + currency + ':' + Math.max(0, page - 1) + ':previous').setLabel('Página anterior').setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
+    new ButtonBuilder().setCustomId('econ:store:page:' + currency + ':' + Math.min(pages - 1, page + 1) + ':next').setLabel('Próxima página').setStyle(ButtonStyle.Primary).setDisabled(page >= pages - 1),
   ));
   return container;
 }
@@ -108,7 +108,7 @@ function inventoryContainer(pageData, userId, ownerId, page = 0) {
       const usable = item.usable ? '✅ Utilizável' : '⛔ Não utilizável';
       const text = '**' + (item.emoji || '📦') + ' ' + item.name + '** × ' + entry.quantity.toLocaleString('pt-BR') + '\n' + description + '\n\n' + usable + ' · ID: `' + entry.sku + '`';
       const button = new ButtonBuilder()
-        .setCustomId('econ:inventory:use:' + ownerId + ':' + entry.sku + ':' + page)
+        .setCustomId('econ:inventory:use:' + ownerId + ':' + entry.sku + ':' + page + ':' + index)
         .setLabel(item.usable ? 'Usar' : 'Não utilizável')
         .setStyle(item.usable ? ButtonStyle.Success : ButtonStyle.Secondary)
         .setDisabled(!item.usable || ownerId !== userId);
@@ -120,8 +120,8 @@ function inventoryContainer(pageData, userId, ownerId, page = 0) {
   container.addSeparatorComponents(new SeparatorBuilder());
   container.addTextDisplayComponents(new TextDisplayBuilder().setContent('Página **' + (page + 1) + '/' + pageData.pages + '**'));
   container.addActionRowComponents(new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('econ:inventory:page:' + ownerId + ':' + userId + ':' + Math.max(0, page - 1)).setLabel('Anterior').setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
-    new ButtonBuilder().setCustomId('econ:inventory:page:' + ownerId + ':' + userId + ':' + Math.min(pageData.pages - 1, page + 1)).setLabel('Próxima').setStyle(ButtonStyle.Primary).setDisabled(page >= pageData.pages - 1),
+    new ButtonBuilder().setCustomId('econ:inventory:page:' + ownerId + ':' + userId + ':' + Math.max(0, page - 1) + ':previous').setLabel('Anterior').setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
+    new ButtonBuilder().setCustomId('econ:inventory:page:' + ownerId + ':' + userId + ':' + Math.min(pageData.pages - 1, page + 1) + ':next').setLabel('Próxima').setStyle(ButtonStyle.Primary).setDisabled(page >= pageData.pages - 1),
   ));
   return container;
 }

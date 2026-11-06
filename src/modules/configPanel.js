@@ -39,6 +39,12 @@ function container(text, rows = []) {
   return createContainer(text, rows, 0x8B0000);
 }
 
+function channelList(ids) {
+  const visible = ids.slice(0, 20).map((id) => '<#' + id + '>');
+  if (ids.length > visible.length) visible.push('+' + (ids.length - visible.length) + ' outros');
+  return visible.join(', ') || 'nenhum';
+}
+
 async function showHome(interaction, update = false) {
   const content = [
     '# Kiryu · Configuração',
@@ -55,8 +61,10 @@ async function showHome(interaction, update = false) {
 
 async function showXp(interaction, update = true) {
   const cfg = await getGuildConfig(interaction.guildId);
-  const buffs = cfg.buffs.length
-    ? cfg.buffs.map((buff) => '• <@&' + buff.roleId + '>: **' + buff.multiplier + 'x**').join('\n')
+  const visibleBuffs = cfg.buffs.slice(0, 25);
+  const buffs = visibleBuffs.length
+    ? visibleBuffs.map((buff) => '• <@&' + buff.roleId + '>: **' + buff.multiplier + 'x**').join('\n')
+      + (cfg.buffs.length > visibleBuffs.length ? '\n• +' + (cfg.buffs.length - visibleBuffs.length) + ' outros cargos' : '')
     : 'Nenhum cargo cadastrado.';
   const content = [
     '# Experiência e níveis',
@@ -65,8 +73,8 @@ async function showXp(interaction, update = true) {
     '## Voz',
     '• XP: ' + cfg.voiceXp.min + '–' + cfg.voiceXp.max + ' a cada ' + (cfg.voiceXp.intervalMs / 60000) + ' min',
     '## Canais excluídos',
-    '• Mensagens: ' + (cfg.messageXp.excludedChannelIds.map((id) => '<#' + id + '>').join(', ') || 'nenhum'),
-    '• Voz: ' + (cfg.voiceXp.excludedChannelIds.map((id) => '<#' + id + '>').join(', ') || 'nenhum'),
+    '• Mensagens: ' + channelList(cfg.messageXp.excludedChannelIds),
+    '• Voz: ' + channelList(cfg.voiceXp.excludedChannelIds),
     '## Buffs por cargo',
     buffs,
     'Com vários cargos: **' + (cfg.stackBuffs ? 'multiplicadores acumulados' : 'maior multiplicador') + '**.',
@@ -96,7 +104,11 @@ async function showXp(interaction, update = true) {
 
 async function showPermissions(interaction, update = true) {
   const cfg = await getGuildConfig(interaction.guildId);
-  const roles = cfg.adminRoleIds.length ? cfg.adminRoleIds.map((id) => '• <@&' + id + '>').join('\n') : 'Nenhum cargo autorizado. O proprietário sempre tem acesso.';
+  const visibleRoles = cfg.adminRoleIds.slice(0, 25);
+  const roles = visibleRoles.length
+    ? visibleRoles.map((id) => '• <@&' + id + '>').join('\n')
+      + (cfg.adminRoleIds.length > visibleRoles.length ? '\n• +' + (cfg.adminRoleIds.length - visibleRoles.length) + ' outros cargos' : '')
+    : 'Nenhum cargo autorizado. O proprietário sempre tem acesso.';
   return interaction.update({
     components: [container('# Permissões administrativas\nCargos autorizados a usar os comandos de gerenciamento:\n\n' + roles, [
       navRow(),
@@ -136,7 +148,11 @@ async function showTriggerDetail(interaction, triggerId, update = true) {
   const cfg = await getGuildConfig(interaction.guildId);
   const trigger = cfg.triggers.id(triggerId);
   if (!trigger) return showTriggers(interaction, update);
-  const responseList = trigger.responses.length ? trigger.responses.map((response, index) => (index + 1) + '. ' + response).join('\n') : 'Sem respostas.';
+  const visibleResponses = trigger.responses.slice(0, 25);
+  const responseList = visibleResponses.length ? visibleResponses.map((response, index) => {
+    const preview = String(response).replace(/\s+/g, ' ');
+    return (index + 1) + '. ' + preview.slice(0, 90) + (preview.length > 90 ? '…' : '');
+  }).join('\n') + (trigger.responses.length > visibleResponses.length ? '\n… +' + (trigger.responses.length - visibleResponses.length) + ' respostas' : '') : 'Sem respostas.';
   const rows = [
     navRow(),
     row(button('config:trigger:text:' + triggerId, 'Editar texto'), button('config:trigger:response:add:' + triggerId, 'Adicionar resposta', ButtonStyle.Success), button('config:trigger:toggle:' + triggerId, trigger.enabled ? 'Desativar' : 'Ativar')),
