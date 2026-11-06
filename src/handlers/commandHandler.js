@@ -1,5 +1,6 @@
 const logger = require('../logger');
 const { handleConfigInteraction } = require('../modules/configPanel');
+const { handleEconomyInteraction } = require('../modules/economyInteractions');
 
 async function handleInteraction(interaction, client) {
   if (interaction.isChatInputCommand()) {
@@ -9,7 +10,7 @@ async function handleInteraction(interaction, client) {
       await command.execute(interaction, client);
     } catch (error) {
       logger.error('Falha ao executar /' + interaction.commandName + ' (' + (error?.code || error?.name || 'erro') + ').');
-      const response = { content: 'O comando encontrou um erro. Tente novamente em instantes.', ephemeral: true };
+      const response = { content: error.publicMessage || (error instanceof RangeError ? error.message : 'O comando encontrou um erro. Tente novamente em instantes.'), ephemeral: true };
       if (interaction.deferred || interaction.replied) await interaction.followUp(response).catch(() => {});
       else await interaction.reply(response).catch(() => {});
     }
@@ -17,7 +18,8 @@ async function handleInteraction(interaction, client) {
   }
 
   if (interaction.isButton() || interaction.isAnySelectMenu() || interaction.isModalSubmit()) {
-    await handleConfigInteraction(interaction);
+    if (await handleConfigInteraction(interaction)) return;
+    await handleEconomyInteraction(interaction);
   }
 }
 

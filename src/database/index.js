@@ -5,6 +5,13 @@ const config = require('../config');
 const logger = require('../logger');
 const UserXp = require('./models/UserXp');
 const GuildConfig = require('./models/GuildConfig');
+const EconomyAccount = require('./models/EconomyAccount');
+const EconomyItem = require('./models/EconomyItem');
+const EconomyInventory = require('./models/EconomyInventory');
+const EconomyTransaction = require('./models/EconomyTransaction');
+const EconomySettings = require('./models/EconomySettings');
+const EconomyCollectRule = require('./models/EconomyCollectRule');
+const EconomyClaim = require('./models/EconomyClaim');
 
 function createTlsContext() {
   const { ca, certificate, key } = config.certificates;
@@ -41,8 +48,9 @@ async function connectDatabase() {
 
 async function initializeDatabase() {
   if (mongoose.connection.readyState !== 1) throw new Error('MongoDB não está conectado.');
-  await Promise.all([UserXp.createCollection().catch(ignoreNamespaceExists), GuildConfig.createCollection().catch(ignoreNamespaceExists)]);
-  await Promise.all([UserXp.createIndexes(), GuildConfig.createIndexes()]);
+  const models = [UserXp, GuildConfig, EconomyAccount, EconomyItem, EconomyInventory, EconomyTransaction, EconomySettings, EconomyCollectRule, EconomyClaim];
+  await Promise.all(models.map((model) => model.createCollection().catch(ignoreNamespaceExists)));
+  await Promise.all(models.map((model) => model.createIndexes()));
   logger.info('Coleções e índices do Kiryu inicializados.');
 }
 
@@ -55,4 +63,7 @@ async function closeDatabase() {
   await mongoose.disconnect();
 }
 
-module.exports = { connectDatabase, initializeDatabase, closeDatabase, UserXp, GuildConfig, createTlsContext };
+module.exports = {
+  connectDatabase, initializeDatabase, closeDatabase, UserXp, GuildConfig, createTlsContext,
+  EconomyAccount, EconomyItem, EconomyInventory, EconomyTransaction, EconomySettings, EconomyCollectRule, EconomyClaim,
+};
