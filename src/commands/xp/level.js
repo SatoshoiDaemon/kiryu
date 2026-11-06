@@ -1,7 +1,7 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const { getProfile } = require('../../modules/xpService');
 const { levelContainer } = require('../../modules/levelView');
-const { MessageFlags } = require('discord.js');
+const { replyV2 } = require('../../modules/components');
 const config = require('../../config');
 
 const data = new SlashCommandBuilder()
@@ -10,10 +10,13 @@ const data = new SlashCommandBuilder()
   .addUserOption((option) => option.setName('usuario').setDescription('Usuário para consultar').setRequired(false));
 
 async function execute(interaction) {
-  if (interaction.guildId !== config.guildId) return;
+  if (interaction.guildId !== config.guildId) {
+    await replyV2(interaction, 'Este comando só está disponível no servidor configurado.');
+    return;
+  }
   const target = interaction.options.getUser('usuario') || interaction.user;
   const profile = await getProfile(interaction.guildId, target.id);
-  await interaction.reply({
+  await interaction.editReply({
     components: [levelContainer(target, profile)],
     flags: MessageFlags.IsComponentsV2,
     allowedMentions: { parse: [] },

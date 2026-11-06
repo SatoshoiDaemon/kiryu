@@ -14,7 +14,7 @@ const {
 const config = require('../config');
 const { getGuildConfig } = require('./xpService');
 const { normalizeTriggerText } = require('./triggers');
-const { createContainer } = require('./components');
+const { createContainer, replyV2 } = require('./components');
 
 function button(customId, label, style = ButtonStyle.Secondary) {
   return new ButtonBuilder().setCustomId(customId).setLabel(label).setStyle(style);
@@ -46,7 +46,11 @@ async function showHome(interaction, update = false) {
     'Escolha uma seção para editar os dados persistidos no MongoDB.',
   ].join('\n');
   const payload = { components: [container(content, [navRow()])], allowedMentions: { parse: [] } };
-  return update ? interaction.update(payload) : interaction.reply({ ...payload, flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral });
+  if (update) return interaction.update(payload);
+  if (interaction.deferred || interaction.replied) {
+    return interaction.editReply({ ...payload, flags: MessageFlags.IsComponentsV2 });
+  }
+  return interaction.reply({ ...payload, flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral });
 }
 
 async function showXp(interaction, update = true) {
@@ -179,7 +183,11 @@ async function handleConfigInteraction(interaction) {
   const customId = interaction.customId || '';
   if (!customId.startsWith('config:')) return false;
   if (interaction.user.id !== config.ownerId || interaction.guildId !== config.guildId) {
-    await interaction.reply({ content: 'Acesso negado.', flags: MessageFlags.Ephemeral });
+    if (interaction.deferred || interaction.replied) {
+      await replyV2(interaction, 'Acesso negado.', { ephemeral: true });
+    } else {
+      await interaction.reply({ content: 'Acesso negado.', flags: MessageFlags.Ephemeral });
+    }
     return true;
   }
 
@@ -458,7 +466,7 @@ async function handleConfigInteraction(interaction) {
 
 async function executeConfigCommand(interaction) {
   if (interaction.user.id !== config.ownerId || interaction.guildId !== config.guildId) {
-    await interaction.reply({ content: 'Este painel é exclusivo do proprietário do bot.', flags: MessageFlags.Ephemeral });
+    await replyV2(interaction, 'Este painel é exclusivo do proprietário do bot.', { ephemeral: true });
     return;
   }
   await getGuildConfig(interaction.guildId);

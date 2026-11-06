@@ -1,6 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { getAccount } = require('../../modules/economyService');
-const { orbsContainer, payload } = require('../../modules/economyViews');
+const { orbsContainer, payload, respond } = require('../../modules/economyViews');
 const config = require('../../config');
 
 const data = new SlashCommandBuilder().setName('orbes').setDescription('Consulte e converta seus saldos de Orbes.');
@@ -8,7 +8,7 @@ const data = new SlashCommandBuilder().setName('orbes').setDescription('Consulte
 async function execute(interaction) {
   if (interaction.guildId !== config.guildId) return;
   const account = await getAccount(interaction.guildId, interaction.user.id);
-  await interaction.reply(payload(orbsContainer(account, interaction.user.id), true));
+  await respond(interaction, payload(orbsContainer(account, interaction.user.id), true));
 }
 
-module.exports = { data, execute };
+module.exports = { data, execute, deferEphemeral: true };

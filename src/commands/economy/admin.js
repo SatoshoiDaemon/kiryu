@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { EconomyItem } = require('../../database');
 const { isAuthorized } = require('../../modules/permissions');
 const { replyV2 } = require('../../modules/components');
@@ -201,7 +201,7 @@ function optional(interaction, getter, name) {
 
 async function requireAdmin(interaction) {
   if (!(await isAuthorized(interaction.member, interaction.user.id, interaction.guildId))) {
-    await interaction.reply({ content: 'Você não tem permissão para administrar a economia.', flags: MessageFlags.Ephemeral });
+    await replyV2(interaction, 'Você não tem permissão para administrar a economia.', { ephemeral: true });
     return false;
   }
   return true;
@@ -422,4 +422,4 @@ function collectRuleOptions(interaction, creating) {
   return fields;
 }
 
-module.exports = { data, execute, addRuleOptions, addCreateItemOptions, addEditItemOptions };
+module.exports = { data, execute, deferEphemeral: true, addRuleOptions, addCreateItemOptions, addEditItemOptions };

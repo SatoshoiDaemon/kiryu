@@ -25,6 +25,16 @@ function payload(container, ephemeral = false) {
   };
 }
 
+async function respond(interaction, response) {
+  if (interaction.deferred || interaction.replied) {
+    return interaction.editReply({
+      components: response.components,
+      allowedMentions: response.allowedMentions || { parse: [] },
+    });
+  }
+  return interaction.reply(response);
+}
+
 function priceLabel(item) {
   if (item.currency === 'fragments') return formatFragments(item.price * item.purchaseQuantity);
   const orb = ORBS[item.orbType];
@@ -180,6 +190,6 @@ function collectContainer(rules, ownerId, page = 0) {
 }
 
 module.exports = {
-  makeContainer, basicContainer, payload, priceLabel, availabilityLabel, storeContainer,
+  makeContainer, basicContainer, payload, respond, priceLabel, availabilityLabel, storeContainer,
   inventoryContainer, walletContainer, orbBalanceText, orbsContainer, collectContainer,
 };

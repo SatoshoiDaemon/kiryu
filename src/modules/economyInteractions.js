@@ -10,7 +10,7 @@ const {
 const { editCatalogItem } = require('./economyAdminService');
 const { ORBS, ORB_TYPES, EconomyError, orbConversion, formatFragments } = require('./economyUtils');
 const {
-  basicContainer, payload, storeContainer, inventoryContainer, orbBalanceText, walletContainer,
+  basicContainer, payload, respond, storeContainer, inventoryContainer, orbBalanceText, walletContainer,
   collectContainer, orbsContainer,
 } = require('./economyViews');
 
@@ -154,7 +154,7 @@ async function showStore(interaction, currency, page = 0, update = false) {
   const result = await getStorePage(interaction.guildId, currency, { page: Math.max(0, page), pageSize: STORE_PAGE_SIZE });
   const container = storeContainer(result.items, currency, result.page, result.pages);
   if (update) return interaction.update(interactionUpdate(container));
-  return interaction.reply(payload(container));
+  return respond(interaction, payload(container));
 }
 
 async function showInventory(interaction, ownerId, userId, page = 0, update = false, ephemeral = false) {
@@ -163,7 +163,7 @@ async function showInventory(interaction, ownerId, userId, page = 0, update = fa
   data.page = currentPage;
   const container = inventoryContainer(data, userId, ownerId, currentPage);
   if (update) return interaction.update(interactionUpdate(container));
-  return interaction.reply(payload(container, ephemeral));
+  return respond(interaction, payload(container, ephemeral));
 }
 
 function collectionSelectionContainer(rule, ownerId) {
