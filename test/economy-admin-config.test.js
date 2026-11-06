@@ -17,10 +17,15 @@ const { configureDaily } = require('../src/modules/economyAdminService');
 test('admin configura a recompensa diária com Orbes em MongoDB standalone', async () => {
   const settings = {
     daily: {
-      fragments: 500,
+      rewardRanges: {
+        fragments: { min: 400, max: 1000 },
+        orbs: {
+          green: { min: 10, max: 100 }, blue: { min: 10, max: 50 }, orange: { min: 5, max: 10 },
+          red: { min: 0, max: 0 }, black: { min: 0, max: 0 }, gold: { min: 0, max: 0 },
+        },
+      },
       cooldownMs: 86400000,
-      orbs: { green: 0, blue: 0, orange: 0, red: 0, black: 0, gold: 0 },
-      orbsConfigured: true,
+      rangesConfigured: true,
     },
     save: jest.fn().mockResolvedValue(),
   };
@@ -29,12 +34,20 @@ test('admin configura a recompensa diária com Orbes em MongoDB standalone', asy
   const startSession = jest.spyOn(mongoose, 'startSession');
 
   await expect(configureDaily({
-    guildId: 'guild', actorId: 'admin', fragments: 500, cooldownHours: 24,
-    orbs: { green: 1, blue: 0, orange: 0, red: 0, black: 0, gold: 0 },
+    guildId: 'guild', actorId: 'admin', fragmentRange: { min: 400, max: 1000 }, cooldownHours: 24,
+    orbRanges: {
+      green: { min: 10, max: 100 }, blue: { min: 10, max: 50 }, orange: { min: 5, max: 10 },
+    },
   })).resolves.toBe(settings);
 
-  expect(settings.daily.orbs.green).toBe(1);
-  expect(settings.daily.orbsConfigured).toBe(true);
+  expect(settings.daily.rewardRanges).toMatchObject({
+    fragments: { min: 400, max: 1000 },
+    orbs: {
+      green: { min: 10, max: 100 }, blue: { min: 10, max: 50 }, orange: { min: 5, max: 10 },
+      red: { min: 0, max: 0 }, black: { min: 0, max: 0 }, gold: { min: 0, max: 0 },
+    },
+  });
+  expect(settings.daily.rangesConfigured).toBe(true);
   expect(settings.save).toHaveBeenCalledWith();
   expect(startSession).not.toHaveBeenCalled();
   expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Configuração aplicada'));

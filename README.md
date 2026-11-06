@@ -33,7 +33,7 @@ O arquivo .env existente pode continuar usando o nome antigo DICORD_TOKEN; DISCO
 
 ## Economia
 
-Fragmentos têm saldo separado de carteira e banco. /carteira exibe os saldos e oferece atalhos para inventário, depósito e saque. Orbes são saldos independentes em seis categorias; /orbes permite converter quantidades múltiplas de 10 para a categoria seguinte depois de uma prévia e confirmação. A recompensa diária padrão é 500 Fragmentos e 1 Orbe verde; `/economia daily-config` permite ajustar as seis categorias. Configurações diárias antigas recebem esse padrão verde automaticamente uma única vez.
+Fragmentos têm saldo separado de carteira e banco. /carteira exibe os saldos e oferece atalhos para inventário, depósito e saque. Orbes são saldos independentes em seis categorias; /orbes permite converter quantidades múltiplas de 10 para a categoria seguinte depois de uma prévia e confirmação. A recompensa diária sorteia cada valor de forma independente: 400–1.000 Fragmentos, 10–100 Orbes verdes, 10–50 azuis e 5–10 laranjas; Orbes vermelhas, pretas e douradas começam em zero. `/economia daily-config` permite alterar cada mínimo e máximo, e configurações diárias antigas recebem essas faixas padrão uma única vez.
 
 As lojas usam Containers e Components V2, têm três itens por página e verificam estoque e datas de disponibilidade no servidor durante cada compra. O histórico registra compras, usos, recompensas, depósitos, saques e ações administrativas. Itens removidos do catálogo continuam nos inventários e nos registros existentes.
 

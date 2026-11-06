@@ -63,14 +63,23 @@ describe('atomicidade das operações econômicas', () => {
     expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('histórico econômico'));
   });
 
-  test('settings existentes recebem uma Orbe verde diária só uma vez', async () => {
-    const migrated = { daily: { orbs: { green: 1 }, orbsConfigured: true } };
-    db.EconomySettings.findById.mockResolvedValue({ daily: { orbsConfigured: false } });
+  test('settings existentes recebem as faixas diárias aleatórias uma só vez', async () => {
+    const migrated = { daily: { rewardRanges: { fragments: { min: 400, max: 1000 } }, rangesConfigured: true } };
+    db.EconomySettings.findById.mockResolvedValue({ daily: { rangesConfigured: false } });
     db.EconomySettings.findOneAndUpdate.mockResolvedValue(migrated);
     await expect(getSettings('g')).resolves.toBe(migrated);
     expect(db.EconomySettings.findOneAndUpdate).toHaveBeenCalledWith(
-      { _id: 'g', 'daily.orbsConfigured': { $ne: true } },
-      { $set: { 'daily.orbs.green': 1, 'daily.orbsConfigured': true } },
+      { _id: 'g', 'daily.rangesConfigured': { $ne: true } },
+      { $set: {
+        'daily.rewardRanges.fragments': { min: 400, max: 1000 },
+        'daily.rewardRanges.orbs.green': { min: 10, max: 100 },
+        'daily.rewardRanges.orbs.blue': { min: 10, max: 50 },
+        'daily.rewardRanges.orbs.orange': { min: 5, max: 10 },
+        'daily.rewardRanges.orbs.red': { min: 0, max: 0 },
+        'daily.rewardRanges.orbs.black': { min: 0, max: 0 },
+        'daily.rewardRanges.orbs.gold': { min: 0, max: 0 },
+        'daily.rangesConfigured': true,
+      } },
       { returnDocument: 'after' },
     );
   });
@@ -169,30 +178,44 @@ describe('atomicidade das operações econômicas', () => {
     const now = new Date('2026-11-06T12:00:00Z');
     const previousClaim = new Date('2026-11-06T11:00:00Z');
     const account = doc({ wallet: 500, bank: 0, orbs: { green: 1 } });
-    db.EconomySettings.findById.mockResolvedValue({ daily: { fragments: 500, cooldownMs: 86400000, orbs: { green: 1 }, orbsConfigured: true } });
+    db.EconomySettings.findById.mockResolvedValue({ daily: {
+      rewardRanges: { fragments: { min: 500, max: 500 }, orbs: {
+        green: { min: 1, max: 1 }, blue: { min: 0, max: 0 }, orange: { min: 0, max: 0 },
+        red: { min: 0, max: 0 }, black: { min: 0, max: 0 }, gold: { min: 0, max: 0 },
+      } },
+      cooldownMs: 86400000, rangesConfigured: true,
+    } });
     db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(account).mockResolvedValueOnce(null);
     db.EconomyAccount.findOne.mockReturnValue(query({ lastDailyAt: previousClaim }));
 
-    await expect(claimDaily({ guildId: 'g', userId: 'u', now }))
+    await expect(claimDaily({ guildId: 'g', userId: 'u', now, random: (min) => min }))
       .rejects.toMatchObject({ publicMessage: expect.stringContaining('23h') });
     expect(db.EconomyAccount.findOneAndUpdate.mock.calls[1][0].$or[2].lastDailyAt.$lte)
       .toEqual(new Date(now.getTime() - 86400000));
     expect(db.EconomyTransaction.create).not.toHaveBeenCalled();
   });
 
-  test('/daily credita Fragmentos e cada categoria de Orbe na mesma atualização de conta', async () => {
+  test('/daily sorteia cada faixa e credita Fragmentos e Orbes numa atualização atômica', async () => {
     const now = Date.now();
-    const updated = doc({ wallet: 500, orbs: { green: 1, blue: 2 }, lastDailyAt: new Date(now) });
+    const updated = doc({ wallet: 1000, orbs: { green: 100, blue: 50, orange: 10 }, lastDailyAt: new Date(now) });
     db.EconomySettings.findById.mockResolvedValue({ daily: {
-      fragments: 500, cooldownMs: 86400000, orbsConfigured: true,
-      orbs: { green: 1, blue: 2, orange: 0, red: 0, black: 0, gold: 0 },
+      rewardRanges: {
+        fragments: { min: 400, max: 1000 },
+        orbs: {
+          green: { min: 10, max: 100 }, blue: { min: 10, max: 50 }, orange: { min: 5, max: 10 },
+          red: { min: 0, max: 0 }, black: { min: 0, max: 0 }, gold: { min: 0, max: 0 },
+        },
+      },
+      cooldownMs: 86400000, rangesConfigured: true,
     } });
     db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(doc({ wallet: 0 })).mockResolvedValueOnce(updated);
 
-    await expect(claimDaily({ guildId: 'g', userId: 'u', now }))
-      .resolves.toMatchObject({ fragments: 500, orbs: { green: 1, blue: 2 }, account: { wallet: 500 } });
+    const random = jest.fn((_min, max) => max - 1);
+    await expect(claimDaily({ guildId: 'g', userId: 'u', now, random }))
+      .resolves.toMatchObject({ fragments: 1000, orbs: { green: 100, blue: 50, orange: 10 }, account: { wallet: 1000 } });
+    expect(random.mock.calls).toEqual([[400, 1001], [10, 101], [10, 51], [5, 11], [0, 1], [0, 1], [0, 1]]);
     expect(db.EconomyAccount.findOneAndUpdate.mock.calls[1][1].$inc)
-      .toEqual({ wallet: 500, 'orbs.green': 1, 'orbs.blue': 2 });
+      .toEqual({ wallet: 1000, 'orbs.green': 100, 'orbs.blue': 50, 'orbs.orange': 10 });
     expect(mongoose.startSession).not.toHaveBeenCalled();
   });
 
