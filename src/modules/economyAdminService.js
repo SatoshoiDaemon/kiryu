@@ -3,6 +3,8 @@ const {
 } = require('../database');
 const { inTransaction, getSettings, itemSnapshot } = require('./economyService');
 const { ORB_TYPES, assertAmount, EconomyError, MAX_AMOUNT } = require('./economyUtils');
+const logger = require('../logger');
+const { errorDetails } = require('./errorDetails');
 
 const CURRENCIES = ['fragments', 'orbs'];
 const ACTIONS = ['none', 'grant_fragments', 'grant_orb'];
@@ -41,7 +43,13 @@ function validateItem(data, { partial = false } = {}) {
 }
 
 async function auditAdmin(data, session) {
-  await EconomyTransaction.create([data], { session });
+  try {
+    if (session) await EconomyTransaction.create([data], { session });
+    else await EconomyTransaction.create([data]);
+  } catch (error) {
+    if (session) throw error;
+    logger.error('Configuração aplicada, mas não foi possível gravar o histórico econômico (' + errorDetails(error) + ').');
+  }
 }
 
 async function configureWork({ guildId, actorId, min, max, cooldownMinutes }) {
@@ -50,14 +58,12 @@ async function configureWork({ guildId, actorId, min, max, cooldownMinutes }) {
   if (min > max) throw new RangeError('A recompensa mínima não pode superar a máxima.');
   assertAmount(cooldownMinutes, 'Cooldown em minutos', { min: 1, max: 525600 });
   const settings = await getSettings(guildId);
-  return inTransaction(async (session) => {
-    settings.work.min = min;
-    settings.work.max = max;
-    settings.work.cooldownMs = cooldownMinutes * 60000;
-    await settings.save({ session });
-    await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_work_config', currency: 'none', details: { min, max, cooldownMinutes } }, session);
-    return settings;
-  });
+  settings.work.min = min;
+  settings.work.max = max;
+  settings.work.cooldownMs = cooldownMinutes * 60000;
+  await settings.save();
+  await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_work_config', currency: 'none', details: { min, max, cooldownMinutes } });
+  return settings;
 }
 
 async function configureDaily({ guildId, actorId, fragments, cooldownHours, orbs }) {
@@ -65,14 +71,13 @@ async function configureDaily({ guildId, actorId, fragments, cooldownHours, orbs
   assertAmount(cooldownHours, 'Cooldown em horas', { min: 1, max: 8760 });
   for (const type of ORB_TYPES) assertAmount(Number(orbs[type] || 0), 'Recompensa de Orbes', { min: 0, max: MAX_AMOUNT });
   const settings = await getSettings(guildId);
-  return inTransaction(async (session) => {
-    settings.daily.fragments = fragments;
-    settings.daily.cooldownMs = cooldownHours * 3600000;
-    for (const type of ORB_TYPES) settings.daily.orbs[type] = Number(orbs[type] || 0);
-    await settings.save({ session });
-    await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_daily_config', currency: 'mixed', amount: fragments, details: { cooldownHours, orbs } }, session);
-    return settings;
-  });
+  settings.daily.fragments = fragments;
+  settings.daily.cooldownMs = cooldownHours * 3600000;
+  for (const type of ORB_TYPES) settings.daily.orbs[type] = Number(orbs[type] || 0);
+  settings.daily.orbsConfigured = true;
+  await settings.save();
+  await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_daily_config', currency: 'mixed', amount: fragments, details: { cooldownHours, orbs } });
+  return settings;
 }
 
 function normalizeRule(data) {

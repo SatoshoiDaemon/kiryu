@@ -29,6 +29,7 @@ async function respond(interaction, response) {
   if (interaction.deferred || interaction.replied) {
     return interaction.editReply({
       components: response.components,
+      flags: MessageFlags.IsComponentsV2,
       allowedMentions: response.allowedMentions || { parse: [] },
     });
   }

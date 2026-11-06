@@ -13,8 +13,10 @@ async function handleInteraction(interaction, client) {
       return;
     }
     try {
-      const flags = MessageFlags.IsComponentsV2 | (command.deferEphemeral ? MessageFlags.Ephemeral : 0);
-      await interaction.deferReply({ flags });
+      // Deferred interaction responses can set Ephemeral. Set the V2 flag on the
+      // first actual message edit/reply, together with its V2 container.
+      const flags = command.deferEphemeral ? MessageFlags.Ephemeral : undefined;
+      await interaction.deferReply(flags === undefined ? {} : { flags });
       await command.execute(interaction, client);
     } catch (error) {
       logger.error('Falha ao executar /' + interaction.commandName + ' (' + errorDetails(error) + ').');
