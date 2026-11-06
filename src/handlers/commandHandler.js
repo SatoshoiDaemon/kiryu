@@ -1,3 +1,4 @@
+const { errorDetails } = require('../modules/errorDetails');
 const { MessageFlags } = require('discord.js');
 const logger = require('../logger');
 const { handleConfigInteraction } = require('../modules/configPanel');
@@ -16,7 +17,7 @@ async function handleInteraction(interaction, client) {
       await interaction.deferReply({ flags });
       await command.execute(interaction, client);
     } catch (error) {
-      logger.error('Falha ao executar /' + interaction.commandName + ' (' + (error?.code || error?.name || 'erro') + ').');
+      logger.error('Falha ao executar /' + interaction.commandName + ' (' + errorDetails(error) + ').');
       const message = error.publicMessage || (error instanceof RangeError ? error.message : 'O comando encontrou um erro. Tente novamente em instantes.');
       await replyV2(interaction, message, {
         ephemeral: !interaction.deferred && !interaction.replied,
@@ -30,7 +31,7 @@ async function handleInteraction(interaction, client) {
       if (await handleConfigInteraction(interaction)) return;
       await handleEconomyInteraction(interaction);
     } catch (error) {
-      logger.error('Falha ao processar interação (' + (error?.code || error?.name || 'erro') + ').');
+      logger.error('Falha ao processar interação (' + errorDetails(error) + ').');
       if (!interaction.deferred && !interaction.replied) {
         await interaction.reply({ content: 'Não foi possível processar esta ação.', flags: MessageFlags.Ephemeral }).catch(() => {});
       }
@@ -48,7 +49,7 @@ async function handlePrefixMessage(message, client) {
   try {
     await command.executePrefix(message, args, client);
   } catch (error) {
-    logger.error('Falha ao executar comando de texto ' + name.toLowerCase() + ' (' + (error?.code || error?.name || 'erro') + ').');
+    logger.error('Falha ao executar comando de texto ' + name.toLowerCase() + ' (' + errorDetails(error) + ').');
     await message.reply({ content: 'O comando encontrou um erro. Tente novamente em instantes.', allowedMentions: { repliedUser: false } }).catch(() => {});
   }
 }

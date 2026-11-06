@@ -61,3 +61,20 @@ O workflow `.github/workflows/deploy.yml` envia o código ao app `09e5147f116d46
 O workflow usa o secret `SQUARECLOUD_API_TOKEN` do repositório GitHub (**Settings → Secrets and variables → Actions**). Configure as variáveis do `.env` e os certificados MongoDB diretamente na Square Cloud; não coloque esses valores no workflow ou no repositório.
 
 Para o primeiro envio, faça o deploy pelo workflow ou pelo painel da Square Cloud. O `squarecloud.app` e o script `start` já apontam para `src/index.js`.
+
+### Erro MongoServerError em comandos econômicos
+
+Se `/trabalhar` falhar após duas operações de conta e o log indicar
+`This MongoDB deployment does not support retryable writes` ou
+`Transaction numbers are only allowed on a replica set member or mongos`,
+o servidor MongoDB está sem suporte a transações. Isso também afeta `/daily`,
+banco, conversões de Orbes, compras, uso/entrega de itens, coletas e alterações
+administrativas que usam transações.
+
+Configure um replica set no provedor MongoDB (ou migre para um cluster com suporte
+a transações), ajuste `MONGODB_URI` para esse cluster e reinicie o bot. Adicionar
+`retryWrites=false` não habilita transações em um servidor standalone. Não remova
+as transações: elas mantêm saldo, estoque, inventário e histórico consistentes.
+Os logs de falhas agora incluem a mensagem e o código do servidor, com as
+credenciais de conexão ocultadas. O aviso de `new` do Mongoose é independente
+dessa falha; as consultas usam `returnDocument: 'after'`.
