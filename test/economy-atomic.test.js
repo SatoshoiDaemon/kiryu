@@ -11,6 +11,7 @@ jest.mock('../src/database', () => ({
 jest.mock('../src/logger', () => ({ error: jest.fn() }));
 
 const mongoose = require('mongoose');
+const logger = require('../src/logger');
 const db = require('../src/database');
 const { inTransaction, claimWork, bankTransfer, buyItem, claimDaily, convertOrbes, getClaimableRules, claimCollectRules, useInventoryItem } = require('../src/modules/economyService');
 
@@ -38,29 +39,38 @@ describe('atomicidade das operações econômicas', () => {
 
   afterEach(() => jest.restoreAllMocks());
 
-  test('trabalho credita recompensa e registra histórico na mesma transação', async () => {
+  test('trabalho atualiza saldo e cooldown atomicamente sem transação', async () => {
     const now = Date.now();
     const account = doc({ wallet: 250, lastWorkAt: new Date(now) });
     db.EconomySettings.findById.mockResolvedValue({ work: { min: 100, max: 500, cooldownMs: 3600000 } });
     db.EconomyAccount.findOneAndUpdate.mockResolvedValue(account);
     await expect(claimWork({ guildId: 'g', userId: 'u', now, random: () => 250 }))
       .resolves.toMatchObject({ reward: 250, account: { wallet: 250 } });
-    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[2][2])
-      .toEqual({ returnDocument: 'after', session });
+    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[1][2])
+      .toEqual({ returnDocument: 'after' });
     expect(db.EconomyTransaction.create).toHaveBeenCalledWith([
       expect.objectContaining({ operation: 'work_reward', walletDelta: 250 }),
-    ], { session });
-    expect(session.endSession).toHaveBeenCalledTimes(1);
+    ]);
+    expect(mongoose.startSession).not.toHaveBeenCalled();
+  });
+
+  test('falha no histórico não desfaz nem reporta como falho um trabalho creditado', async () => {
+    db.EconomySettings.findById.mockResolvedValue({ work: { min: 100, max: 500, cooldownMs: 3600000 } });
+    db.EconomyAccount.findOneAndUpdate.mockResolvedValue(doc({ wallet: 250, lastWorkAt: new Date() }));
+    db.EconomyTransaction.create.mockRejectedValue(new Error('histórico indisponível'));
+    await expect(claimWork({ guildId: 'g', userId: 'u', random: () => 250 }))
+      .resolves.toMatchObject({ reward: 250, account: { wallet: 250 } });
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('histórico econômico'));
   });
 
   test.each([
     { name: 'MongoServerError', message: 'This MongoDB deployment does not support retryable writes. Please add retryWrites=false to your connection string.' },
     { code: 20, message: 'Transaction numbers are only allowed on a replica set member or mongos' },
-  ])('standalone explica o requisito sem repetir operações fora da transação: %j', async (error) => {
+  ])('operações realmente multirregistro explicam quando não há transações: %j', async (error) => {
     session.withTransaction.mockRejectedValue(error);
     const task = jest.fn();
     await expect(inTransaction(task)).rejects.toMatchObject({
-      publicMessage: expect.stringContaining('replica set'), cause: error,
+      publicMessage: expect.stringContaining('transações'), cause: error,
     });
     expect(task).not.toHaveBeenCalled();
     expect(session.endSession).toHaveBeenCalledTimes(1);
@@ -73,10 +83,9 @@ describe('atomicidade das operações econômicas', () => {
     expect(session.endSession).toHaveBeenCalledTimes(1);
   });
 
-  test('depósito exige saldo suficiente e atualiza carteira e banco no mesmo documento', async () => {
+  test('depósito exige saldo suficiente e atualiza carteira e banco atomicamente', async () => {
     const account = doc({ wallet: 100, bank: 50 });
     db.EconomyAccount.findOneAndUpdate
-      .mockResolvedValueOnce(account)
       .mockResolvedValueOnce(account)
       .mockResolvedValueOnce(doc({ wallet: 60, bank: 90 }));
     db.EconomyTransaction.create.mockResolvedValue([]);
@@ -84,20 +93,19 @@ describe('atomicidade das operações econômicas', () => {
     await expect(bankTransfer({ guildId: 'g', userId: 'u', amount: 40, direction: 'deposit' }))
       .resolves.toMatchObject({ wallet: 60, bank: 90 });
 
-    const debit = db.EconomyAccount.findOneAndUpdate.mock.calls[2];
+    const debit = db.EconomyAccount.findOneAndUpdate.mock.calls[1];
     expect(debit[0]).toMatchObject({ wallet: { $gte: 40 }, bank: { $lte: Number.MAX_SAFE_INTEGER - 40 } });
     expect(debit[1]).toEqual({ $inc: { wallet: -40, bank: 40 } });
-    expect(session.withTransaction).toHaveBeenCalledTimes(1);
+    expect(mongoose.startSession).not.toHaveBeenCalled();
   });
 
   test('saque insuficiente falha sem permitir saldo bancário negativo', async () => {
     const account = doc({ wallet: 10, bank: 2 });
-    db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(account).mockResolvedValueOnce(account).mockResolvedValueOnce(null);
+    db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(account).mockResolvedValueOnce(null);
 
     await expect(bankTransfer({ guildId: 'g', userId: 'u', amount: 3, direction: 'withdraw' }))
       .rejects.toMatchObject({ publicMessage: expect.stringMatching(/Saldo insuficiente/) });
-    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[2][0].bank).toEqual({ $gte: 3 });
-    expect(db.EconomyTransaction.create).not.toHaveBeenCalled();
+    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[1][0].bank).toEqual({ $gte: 3 });
   });
 
   test('uma compra do último item filtra estoque antes de debitar a carteira', async () => {
@@ -150,23 +158,23 @@ describe('atomicidade das operações econômicas', () => {
     const previousClaim = new Date('2026-11-06T11:00:00Z');
     const account = doc({ wallet: 500, bank: 0, orbs: { green: 1 } });
     db.EconomySettings.findById.mockResolvedValue({ daily: { fragments: 500, cooldownMs: 86400000, orbs: { green: 1 } } });
-    db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(account).mockResolvedValueOnce(account).mockResolvedValueOnce(null);
+    db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(account).mockResolvedValueOnce(null);
     db.EconomyAccount.findOne.mockReturnValue(query({ lastDailyAt: previousClaim }));
 
     await expect(claimDaily({ guildId: 'g', userId: 'u', now }))
       .rejects.toMatchObject({ publicMessage: expect.stringContaining('23h') });
-    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[2][0].$or[2].lastDailyAt.$lte)
+    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[1][0].$or[2].lastDailyAt.$lte)
       .toEqual(new Date(now.getTime() - 86400000));
     expect(db.EconomyTransaction.create).not.toHaveBeenCalled();
   });
 
   test('conversão de Orbes usa filtro de saldo atômico', async () => {
     const account = doc({ wallet: 0, bank: 0, orbs: { green: 9, blue: 0 } });
-    db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(account).mockResolvedValueOnce(account).mockResolvedValueOnce(null);
+    db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(account).mockResolvedValueOnce(null);
 
     await expect(convertOrbes({ guildId: 'g', userId: 'u', source: 'green', amount: 10 }))
       .rejects.toMatchObject({ publicMessage: expect.stringMatching(/Saldo insuficiente/) });
-    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[2][0]).toMatchObject({ 'orbs.green': { $gte: 10 }, 'orbs.blue': { $lte: Number.MAX_SAFE_INTEGER - 1 } });
+    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[1][0]).toMatchObject({ 'orbs.green': { $gte: 10 }, 'orbs.blue': { $lte: Number.MAX_SAFE_INTEGER - 1 } });
     expect(db.EconomyTransaction.create).not.toHaveBeenCalled();
   });
 
