@@ -127,7 +127,7 @@ async function editCollectRule({ guildId, actorId, ruleId, ...changes }) {
 
 async function removeCollectRule({ guildId, actorId, ruleId }) {
   return inTransaction(async (session) => {
-    const rule = await EconomyCollectRule.findOneAndUpdate({ guildId, _id: ruleId, active: true }, { $set: { active: false } }, { new: true, session });
+    const rule = await EconomyCollectRule.findOneAndUpdate({ guildId, _id: ruleId, active: true }, { $set: { active: false } }, { returnDocument: 'after', session });
     if (!rule) throw new EconomyError('Regra de coleta não encontrada ou já desativada.');
     await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_collect_rule_remove', currency: 'none', details: { ruleId: String(rule._id), name: rule.name } }, session);
     return rule;
@@ -162,7 +162,7 @@ async function editCatalogItem({ guildId, actorId, sku, changes }) {
     const item = await EconomyItem.findOneAndUpdate(
       { guildId, sku: parseSku(sku), deletedAt: null },
       { $set: { ...entries, updatedBy: actorId } },
-      { new: true, runValidators: true, session },
+      { returnDocument: 'after', runValidators: true, session },
     );
     if (!item) throw new EconomyError('Item não encontrado no catálogo.');
     if (item.currency === 'orbs' && !item.orbType) throw new RangeError('Itens pagos com Orbes precisam de uma categoria.');
@@ -180,7 +180,7 @@ async function editCatalogItem({ guildId, actorId, sku, changes }) {
 async function setCatalogStock({ guildId, actorId, sku, stock }) {
   if (stock !== null) assertAmount(stock, 'Estoque', { min: 0 });
   return inTransaction(async (session) => {
-    const item = await EconomyItem.findOneAndUpdate({ guildId, sku: parseSku(sku), deletedAt: null }, { $set: { stock, updatedBy: actorId } }, { new: true, session });
+    const item = await EconomyItem.findOneAndUpdate({ guildId, sku: parseSku(sku), deletedAt: null }, { $set: { stock, updatedBy: actorId } }, { returnDocument: 'after', session });
     if (!item) throw new EconomyError('Item não encontrado no catálogo.');
     await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_item_stock', currency: 'item', itemId: item._id, itemSku: item.sku, details: { stock } }, session);
     return item;

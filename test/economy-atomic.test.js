@@ -8,9 +8,11 @@ jest.mock('../src/database', () => ({
   EconomyClaim: { find: jest.fn(), insertMany: jest.fn() },
 }));
 
+jest.mock('../src/logger', () => ({ error: jest.fn() }));
+
 const mongoose = require('mongoose');
 const db = require('../src/database');
-const { bankTransfer, buyItem, claimDaily, convertOrbes, getClaimableRules, claimCollectRules, useInventoryItem } = require('../src/modules/economyService');
+const { inTransaction, claimWork, bankTransfer, buyItem, claimDaily, convertOrbes, getClaimableRules, claimCollectRules, useInventoryItem } = require('../src/modules/economyService');
 
 function doc(values = {}) {
   return { ...values, toObject: () => ({ ...values }) };
@@ -35,6 +37,41 @@ describe('atomicidade das operações econômicas', () => {
   });
 
   afterEach(() => jest.restoreAllMocks());
+
+  test('trabalho credita recompensa e registra histórico na mesma transação', async () => {
+    const now = Date.now();
+    const account = doc({ wallet: 250, lastWorkAt: new Date(now) });
+    db.EconomySettings.findById.mockResolvedValue({ work: { min: 100, max: 500, cooldownMs: 3600000 } });
+    db.EconomyAccount.findOneAndUpdate.mockResolvedValue(account);
+    await expect(claimWork({ guildId: 'g', userId: 'u', now, random: () => 250 }))
+      .resolves.toMatchObject({ reward: 250, account: { wallet: 250 } });
+    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[2][2])
+      .toEqual({ returnDocument: 'after', session });
+    expect(db.EconomyTransaction.create).toHaveBeenCalledWith([
+      expect.objectContaining({ operation: 'work_reward', walletDelta: 250 }),
+    ], { session });
+    expect(session.endSession).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    { name: 'MongoServerError', message: 'This MongoDB deployment does not support retryable writes. Please add retryWrites=false to your connection string.' },
+    { code: 20, message: 'Transaction numbers are only allowed on a replica set member or mongos' },
+  ])('standalone explica o requisito sem repetir operações fora da transação: %j', async (error) => {
+    session.withTransaction.mockRejectedValue(error);
+    const task = jest.fn();
+    await expect(inTransaction(task)).rejects.toMatchObject({
+      publicMessage: expect.stringContaining('replica set'), cause: error,
+    });
+    expect(task).not.toHaveBeenCalled();
+    expect(session.endSession).toHaveBeenCalledTimes(1);
+  });
+
+  test('outros erros de transação preservam a causa original', async () => {
+    const failure = new Error('conexão perdida');
+    session.withTransaction.mockRejectedValue(failure);
+    await expect(inTransaction(jest.fn())).rejects.toBe(failure);
+    expect(session.endSession).toHaveBeenCalledTimes(1);
+  });
 
   test('depósito exige saldo suficiente e atualiza carteira e banco no mesmo documento', async () => {
     const account = doc({ wallet: 100, bank: 50 });

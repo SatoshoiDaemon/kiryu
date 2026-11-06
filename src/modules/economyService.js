@@ -8,6 +8,9 @@ const {
   ORB_TYPES, EconomyError, assertAmount, orbConversion, remainingMs, formatDuration, periodKey, isCalendarDue,
 } = require('./economyUtils');
 
+const logger = require('../logger');
+const { errorDetails } = require('./errorDetails');
+
 const MAX_BALANCE = Number.MAX_SAFE_INTEGER;
 
 async function inTransaction(task) {
@@ -16,6 +19,17 @@ async function inTransaction(task) {
   try {
     await session.withTransaction(async () => { result = await task(session); });
     return result;
+  } catch (error) {
+    // The driver rewrites standalone's code 20 into a code-less retryable-writes error,
+    // even when the failed operation is actually inside a transaction.
+    if ((error?.code === 20 && /transaction|replica set/i.test(error.message))
+      || /deployment does not support retryable writes|transaction numbers are only allowed|does not support (sessions|transactions)/i.test(error?.message || '')) {
+      logger.error('Transações econômicas indisponíveis: ' + errorDetails(error));
+      const failure = new EconomyError('A economia está indisponível: o MongoDB precisa estar configurado como replica set para processar transações. Avise a administração do bot.');
+      failure.cause = error;
+      throw failure;
+    }
+    throw error;
   } finally {
     await session.endSession();
   }
@@ -26,7 +40,7 @@ async function ensureAccount(guildId, userId, session) {
     return await EconomyAccount.findOneAndUpdate(
       { guildId, userId },
       { $setOnInsert: { guildId, userId, wallet: 0, bank: 0, orbs: { green: 0, blue: 0, orange: 0, red: 0, black: 0, gold: 0 } } },
-      { upsert: true, new: true, setDefaultsOnInsert: false, session },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: false, session },
     );
   } catch (error) {
     if (error?.code !== 11000 || session) throw error;
@@ -72,7 +86,7 @@ async function adjustFragments({ guildId, actorId, userId, amount, operation = '
     const update = mode === 'set' ? { $set: { [balancePath]: amount } } : amountInc(balancePath, mode === 'add' ? amount : -amount);
     if (mode === 'add') query[balancePath] = { $lte: MAX_BALANCE - amount };
     if (mode === 'remove') query[balancePath] = { $gte: amount };
-    const account = await EconomyAccount.findOneAndUpdate(query, update, { new: true, session });
+    const account = await EconomyAccount.findOneAndUpdate(query, update, { returnDocument: 'after', session });
     if (!account) throw new EconomyError(mode === 'remove' ? 'O usuário não possui Fragmentos suficientes nessa conta.' : 'O saldo máximo permitido seria ultrapassado.');
     const delta = mode === 'set' ? amount - (previous?.[balancePath] || 0) : (mode === 'add' ? amount : -amount);
     const deltas = { walletDelta: accountType === 'wallet' ? delta : 0, bankDelta: accountType === 'bank' ? delta : 0 };
@@ -94,7 +108,7 @@ async function adjustOrbs({ guildId, actorId, userId, type, amount, operation = 
     const update = mode === 'set' ? { $set: { [path]: amount } } : amountInc(path, mode === 'add' ? amount : -amount);
     if (mode === 'add') query[path] = { $lte: MAX_BALANCE - amount };
     if (mode === 'remove') query[path] = { $gte: amount };
-    const account = await EconomyAccount.findOneAndUpdate(query, update, { new: true, session });
+    const account = await EconomyAccount.findOneAndUpdate(query, update, { returnDocument: 'after', session });
     if (!account) throw new EconomyError(mode === 'remove' ? 'O usuário não possui Orbes suficientes nessa categoria.' : 'O saldo máximo permitido seria ultrapassado.');
     await auditRecord({ guildId, actorId, userId, operation, currency: 'orbs', orbType: type, amount, orbDelta: { [type]: mode === 'set' ? amount - (previous?.orbs?.[type] || 0) : (mode === 'add' ? amount : -amount) }, details: { mode, previous: previous?.orbs?.[type] || 0, result: account.orbs[type] } }, session);
     return account.toObject ? account.toObject() : account;
@@ -118,7 +132,7 @@ async function bankTransfer({ guildId, userId, amount, direction }) {
     }
     const account = await EconomyAccount.findOneAndUpdate(query, {
       $inc: { wallet: deposit ? -amount : amount, bank: deposit ? amount : -amount },
-    }, { new: true, session });
+    }, { returnDocument: 'after', session });
     if (!account) throw new EconomyError(deposit ? 'Saldo insuficiente na carteira ou limite do banco atingido.' : 'Saldo insuficiente no banco ou limite da carteira atingido.');
     await auditRecord({ guildId, actorId: userId, userId, operation: deposit ? 'bank_deposit' : 'bank_withdraw', currency: 'fragments', amount, walletDelta: deposit ? -amount : amount, bankDelta: deposit ? amount : -amount }, session);
     return account.toObject ? account.toObject() : account;
@@ -133,7 +147,7 @@ async function convertOrbes({ guildId, userId, source, amount, actorId = userId 
     const account = await EconomyAccount.findOneAndUpdate(
       { guildId, userId, ['orbs.' + source]: { $gte: amount }, ['orbs.' + conversion.destination]: { $lte: MAX_BALANCE - conversion.result } },
       { $inc: { ['orbs.' + source]: -amount, ['orbs.' + conversion.destination]: conversion.result } },
-      { new: true, session },
+      { returnDocument: 'after', session },
     );
     if (!account) throw new EconomyError('Saldo insuficiente para essa conversão ou limite de saldo atingido.');
     await auditRecord({ guildId, actorId, userId, operation: 'orb_conversion', currency: 'orbs', orbType: source, amount, orbDelta: { [source]: -amount, [conversion.destination]: conversion.result } }, session);
@@ -151,7 +165,7 @@ async function claimWork({ guildId, userId, now = Date.now(), random = crypto.ra
     const account = await EconomyAccount.findOneAndUpdate(
       { guildId, userId, $or: [{ lastWorkAt: null }, { lastWorkAt: { $exists: false } }, { lastWorkAt: { $lte: cutoff } }], wallet: { $lte: MAX_BALANCE - reward } },
       { $inc: { wallet: reward }, $set: { lastWorkAt: new Date(now) } },
-      { new: true, session },
+      { returnDocument: 'after', session },
     );
     if (!account) {
       const current = await EconomyAccount.findOne({ guildId, userId }).session(session);
@@ -184,7 +198,7 @@ async function claimDaily({ guildId, userId, now = Date.now() }) {
     const account = await EconomyAccount.findOneAndUpdate(
       { guildId, userId, $or: [{ lastDailyAt: null }, { lastDailyAt: { $exists: false } }, { lastDailyAt: { $lte: cutoff } }], wallet: { $lte: MAX_BALANCE - fragments }, ...orbBounds },
       update,
-      { new: true, session },
+      { returnDocument: 'after', session },
     );
     if (!account) {
       const current = await EconomyAccount.findOne({ guildId, userId }).session(session);
@@ -232,7 +246,7 @@ async function addInventoryEntry({ guildId, userId, item, quantity, session }) {
       const updated = await EconomyInventory.findOneAndUpdate(
         { _id: existing._id, quantity: { $lte: MAX_BALANCE - quantity } },
         { $inc: { quantity } },
-        { new: true, session, runValidators: true },
+        { returnDocument: 'after', session, runValidators: true },
       );
       if (!updated) throw new EconomyError('O inventário foi alterado em outra operação. Tente novamente.');
       return updated;
@@ -240,7 +254,7 @@ async function addInventoryEntry({ guildId, userId, item, quantity, session }) {
     return EconomyInventory.findOneAndUpdate(
       filter,
       { $inc: { quantity }, $setOnInsert: { guildId, userId, itemId: item._id, sku: item.sku, slot: 'stack', itemSnapshot: snapshot } },
-      { upsert: true, new: true, setDefaultsOnInsert: false, session, runValidators: true },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: false, session, runValidators: true },
     );
   }
   const entries = Array.from({ length: quantity }, () => ({
@@ -255,13 +269,13 @@ async function applyItemAction(accountQuery, item, session) {
   const amount = Number(item.actionAmount || 0);
   if (!amount || action === 'none') return null;
   if (action === 'grant_fragments') {
-    const account = await EconomyAccount.findOneAndUpdate({ ...accountQuery, wallet: { $lte: MAX_BALANCE - amount } }, { $inc: { wallet: amount } }, { new: true, session });
+    const account = await EconomyAccount.findOneAndUpdate({ ...accountQuery, wallet: { $lte: MAX_BALANCE - amount } }, { $inc: { wallet: amount } }, { returnDocument: 'after', session });
     if (!account) throw new EconomyError('O limite de saldo impede executar o efeito do item.');
     return account;
   }
   if (action === 'grant_orb' && ORB_TYPES.includes(item.actionOrbType)) {
     const path = 'orbs.' + item.actionOrbType;
-    const account = await EconomyAccount.findOneAndUpdate({ ...accountQuery, [path]: { $lte: MAX_BALANCE - amount } }, { $inc: { [path]: amount } }, { new: true, session });
+    const account = await EconomyAccount.findOneAndUpdate({ ...accountQuery, [path]: { $lte: MAX_BALANCE - amount } }, { $inc: { [path]: amount } }, { returnDocument: 'after', session });
     if (!account) throw new EconomyError('O limite de saldo impede executar o efeito do item.');
     return account;
   }
@@ -294,7 +308,7 @@ async function buyItem({ guildId, userId, itemId, now = new Date(), interactionI
       purchaseFilter.stock = { $gte: quantity };
       purchaseInc.stock = -quantity;
     }
-    const updatedItem = await EconomyItem.findOneAndUpdate(purchaseFilter, { $inc: purchaseInc }, { new: true, session });
+    const updatedItem = await EconomyItem.findOneAndUpdate(purchaseFilter, { $inc: purchaseInc }, { returnDocument: 'after', session });
     if (!updatedItem) throw new EconomyError(item.stock !== null ? 'O estoque acabou antes de concluir a compra.' : 'Este item não está mais disponível na loja.');
 
     await ensureAccount(guildId, userId, session);
@@ -303,7 +317,7 @@ async function buyItem({ guildId, userId, itemId, now = new Date(), interactionI
     const account = await EconomyAccount.findOneAndUpdate(
       { guildId, userId, [balancePath]: { $gte: cost } },
       { $inc: { [balancePath]: -cost } },
-      { new: true, session },
+      { returnDocument: 'after', session },
     );
     if (!account) throw new EconomyError('Saldo insuficiente para comprar este item.');
 
@@ -436,7 +450,7 @@ async function claimCollectRules({ guildId, userId, roleIds = [], ruleIds, now =
     const account = await EconomyAccount.findOneAndUpdate(
       { guildId, userId, wallet: { $lte: MAX_BALANCE - fragments }, ...orbBounds },
       { $inc: inc },
-      { new: true, session },
+      { returnDocument: 'after', session },
     );
     if (!account) throw new EconomyError('O limite de saldo impede creditar essa recompensa.');
     const claims = rules.map((rule) => ({ guildId, userId, ruleId: rule._id, periodKey: periodKey(rule, now), collectedAt: new Date(now) }));
@@ -463,7 +477,7 @@ async function deleteCatalogItem({ guildId, actorId, sku }) {
     const item = await EconomyItem.findOneAndUpdate(
       { guildId, sku: String(sku).toLowerCase(), deletedAt: null },
       { $set: { active: false, deletedAt: new Date(), updatedBy: actorId } },
-      { new: true, session },
+      { returnDocument: 'after', session },
     );
     if (!item) throw new EconomyError('Item não encontrado ou já removido.');
     await auditRecord({ guildId, actorId, userId: actorId, operation: 'admin_item_delete', currency: 'item', itemId: item._id, itemSku: item.sku, itemSnapshot: itemSnapshot(item) }, session);
