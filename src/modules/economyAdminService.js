@@ -1,7 +1,7 @@
 const {
   EconomyItem, EconomyTransaction, EconomySettings, EconomyCollectRule,
 } = require('../database');
-const { inTransaction, getSettings, itemSnapshot } = require('./economyService');
+const { runStandaloneOperation, getSettings, itemSnapshot } = require('./economyService');
 const { ORB_TYPES, assertAmount, EconomyError, MAX_AMOUNT } = require('./economyUtils');
 const logger = require('../logger');
 const { errorDetails } = require('./errorDetails');
@@ -42,12 +42,10 @@ function validateItem(data, { partial = false } = {}) {
   return next;
 }
 
-async function auditAdmin(data, session) {
+async function auditAdmin(data) {
   try {
-    if (session) await EconomyTransaction.create([data], { session });
-    else await EconomyTransaction.create([data]);
+    await EconomyTransaction.create([data]);
   } catch (error) {
-    if (session) throw error;
     logger.error('Configuração aplicada, mas não foi possível gravar o histórico econômico (' + errorDetails(error) + ').');
   }
 }
@@ -121,31 +119,31 @@ function normalizeRule(data) {
 async function createCollectRule({ guildId, actorId, ...data }) {
   const ruleData = normalizeRule(data);
   if (!ruleData.roleId) throw new RangeError('Selecione um cargo elegível.');
-  return inTransaction(async (session) => {
-    const [rule] = await EconomyCollectRule.create([{ guildId, ...ruleData, createdBy: actorId }], { session });
-    await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_collect_rule_create', currency: 'none', details: { ruleId: String(rule._id), name: rule.name, roleId: rule.roleId } }, session);
+  return runStandaloneOperation(async () => {
+    const [rule] = await EconomyCollectRule.create([{ guildId, ...ruleData, createdBy: actorId }]);
+    await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_collect_rule_create', currency: 'none', details: { ruleId: String(rule._id), name: rule.name, roleId: rule.roleId } });
     return rule;
   });
 }
 
 async function editCollectRule({ guildId, actorId, ruleId, ...changes }) {
-  return inTransaction(async (session) => {
-    const rule = await EconomyCollectRule.findOne({ guildId, _id: ruleId, active: true }).session(session);
+  return runStandaloneOperation(async () => {
+    const rule = await EconomyCollectRule.findOne({ guildId, _id: ruleId, active: true });
     if (!rule) throw new EconomyError('Regra de coleta não encontrada.');
     const proposed = { ...rule.toObject(), ...Object.fromEntries(Object.entries(changes).filter(([, value]) => value !== undefined)) };
     const normalized = normalizeRule(proposed);
     Object.assign(rule, normalized);
-    await rule.save({ session });
-    await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_collect_rule_edit', currency: 'none', details: { ruleId: String(rule._id), changes } }, session);
+    await rule.save();
+    await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_collect_rule_edit', currency: 'none', details: { ruleId: String(rule._id), changes } });
     return rule;
   });
 }
 
 async function removeCollectRule({ guildId, actorId, ruleId }) {
-  return inTransaction(async (session) => {
-    const rule = await EconomyCollectRule.findOneAndUpdate({ guildId, _id: ruleId, active: true }, { $set: { active: false } }, { returnDocument: 'after', session });
+  return runStandaloneOperation(async () => {
+    const rule = await EconomyCollectRule.findOneAndUpdate({ guildId, _id: ruleId, active: true }, { $set: { active: false } }, { returnDocument: 'after' });
     if (!rule) throw new EconomyError('Regra de coleta não encontrada ou já desativada.');
-    await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_collect_rule_remove', currency: 'none', details: { ruleId: String(rule._id), name: rule.name } }, session);
+    await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_collect_rule_remove', currency: 'none', details: { ruleId: String(rule._id), name: rule.name } });
     return rule;
   });
 }
@@ -156,10 +154,10 @@ async function createCatalogItem({ guildId, actorId, ...raw }) {
   if (!Number.isSafeInteger(data.price * data.purchaseQuantity)) throw new RangeError('O custo por compra ultrapassa o limite seguro de inteiro.');
   if (data.availableFrom) data.availableFrom = new Date(data.availableFrom);
   if (data.availableUntil) data.availableUntil = new Date(data.availableUntil);
-  return inTransaction(async (session) => {
+  return runStandaloneOperation(async () => {
     try {
-      const [item] = await EconomyItem.create([{ ...data, guildId, createdBy: actorId }], { session });
-      await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_item_create', currency: 'item', itemId: item._id, itemSku: item.sku, itemSnapshot: itemSnapshot(item) }, session);
+      const [item] = await EconomyItem.create([{ ...data, guildId, createdBy: actorId }]);
+      await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_item_create', currency: 'item', itemId: item._id, itemSku: item.sku, itemSnapshot: itemSnapshot(item) });
       return item;
     } catch (error) {
       if (error?.code === 11000) throw new EconomyError('Esse identificador de item já está em uso.');
@@ -174,31 +172,35 @@ async function editCatalogItem({ guildId, actorId, sku, changes }) {
   if (normalized.availableUntil) normalized.availableUntil = new Date(normalized.availableUntil);
   const entries = Object.fromEntries(Object.entries(normalized).filter(([, value]) => value !== undefined));
   if (!Object.keys(entries).length) throw new RangeError('Informe ao menos um campo para alterar.');
-  return inTransaction(async (session) => {
+  return runStandaloneOperation(async () => {
+    const filter = { guildId, sku: parseSku(sku), deletedAt: null };
+    const current = await EconomyItem.findOne(filter).lean();
+    if (!current) throw new EconomyError('Item não encontrado no catálogo.');
+    const proposed = validateItem({ ...current, ...entries });
+    if (proposed.currency === 'orbs' && !proposed.orbType) throw new RangeError('Itens pagos com Orbes precisam de uma categoria.');
+    if (proposed.action === 'grant_orb' && !proposed.actionOrbType) throw new RangeError('A ação configurada precisa de categoria de Orbe.');
+    if (proposed.action !== 'none' && proposed.actionAmount < 1) throw new RangeError('Uma ação automática precisa de quantidade maior que zero.');
+    if (proposed.usable && (proposed.delivery === 'immediate' || !proposed.inventoryVisible)) throw new RangeError('Itens utilizáveis precisam aparecer no inventário e usar entrega por inventário.');
+    if (!proposed.stackable && proposed.purchaseQuantity > MAX_NONSTACKABLE_BATCH) throw new RangeError('Itens não acumuláveis podem entregar até ' + MAX_NONSTACKABLE_BATCH + ' unidades por compra.');
+    if (proposed.availableFrom && proposed.availableUntil && new Date(proposed.availableFrom) >= new Date(proposed.availableUntil)) throw new RangeError('A data final deve ser posterior à data inicial.');
+    if (!Number.isSafeInteger(proposed.price * proposed.purchaseQuantity)) throw new RangeError('O custo por compra ultrapassa o limite seguro de inteiro.');
     const item = await EconomyItem.findOneAndUpdate(
-      { guildId, sku: parseSku(sku), deletedAt: null },
+      filter,
       { $set: { ...entries, updatedBy: actorId } },
-      { returnDocument: 'after', runValidators: true, session },
+      { returnDocument: 'after', runValidators: true },
     );
     if (!item) throw new EconomyError('Item não encontrado no catálogo.');
-    if (item.currency === 'orbs' && !item.orbType) throw new RangeError('Itens pagos com Orbes precisam de uma categoria.');
-    if (item.action === 'grant_orb' && !item.actionOrbType) throw new RangeError('A ação configurada precisa de categoria de Orbe.');
-    if (item.action !== 'none' && item.actionAmount < 1) throw new RangeError('Uma ação automática precisa de quantidade maior que zero.');
-    if (item.usable && (item.delivery === 'immediate' || !item.inventoryVisible)) throw new RangeError('Itens utilizáveis precisam aparecer no inventário e usar entrega por inventário.');
-    if (!item.stackable && item.purchaseQuantity > MAX_NONSTACKABLE_BATCH) throw new RangeError('Itens não acumuláveis podem entregar até ' + MAX_NONSTACKABLE_BATCH + ' unidades por compra.');
-    if (item.availableFrom && item.availableUntil && item.availableFrom >= item.availableUntil) throw new RangeError('A data final deve ser posterior à data inicial.');
-    if (!Number.isSafeInteger(item.price * item.purchaseQuantity)) throw new RangeError('O custo por compra ultrapassa o limite seguro de inteiro.');
-    await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_item_edit', currency: 'item', itemId: item._id, itemSku: item.sku, itemSnapshot: itemSnapshot(item), details: { fields: Object.keys(entries) } }, session);
+    await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_item_edit', currency: 'item', itemId: item._id, itemSku: item.sku, itemSnapshot: itemSnapshot(item), details: { fields: Object.keys(entries) } });
     return item;
   });
 }
 
 async function setCatalogStock({ guildId, actorId, sku, stock }) {
   if (stock !== null) assertAmount(stock, 'Estoque', { min: 0 });
-  return inTransaction(async (session) => {
-    const item = await EconomyItem.findOneAndUpdate({ guildId, sku: parseSku(sku), deletedAt: null }, { $set: { stock, updatedBy: actorId } }, { returnDocument: 'after', session });
+  return runStandaloneOperation(async () => {
+    const item = await EconomyItem.findOneAndUpdate({ guildId, sku: parseSku(sku), deletedAt: null }, { $set: { stock, updatedBy: actorId } }, { returnDocument: 'after' });
     if (!item) throw new EconomyError('Item não encontrado no catálogo.');
-    await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_item_stock', currency: 'item', itemId: item._id, itemSku: item.sku, details: { stock } }, session);
+    await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_item_stock', currency: 'item', itemId: item._id, itemSku: item.sku, details: { stock } });
     return item;
   });
 }

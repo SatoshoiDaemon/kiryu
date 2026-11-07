@@ -5,15 +5,15 @@ jest.mock('../src/database', () => ({
   EconomyTransaction: { findOne: jest.fn(), create: jest.fn() },
   EconomySettings: { findById: jest.fn(), findOneAndUpdate: jest.fn(), create: jest.fn() },
   EconomyCollectRule: { find: jest.fn() },
-  EconomyClaim: { find: jest.fn(), insertMany: jest.fn() },
+  EconomyClaim: { find: jest.fn(), insertMany: jest.fn(), deleteMany: jest.fn() },
 }));
 
-jest.mock('../src/logger', () => ({ error: jest.fn() }));
+jest.mock('../src/logger', () => ({ error: jest.fn(), warn: jest.fn() }));
 
 const mongoose = require('mongoose');
 const logger = require('../src/logger');
 const db = require('../src/database');
-const { inTransaction, getSettings, claimWork, bankTransfer, buyItem, getStorePage, claimDaily, convertOrbes, getClaimableRules, claimCollectRules, useInventoryItem } = require('../src/modules/economyService');
+const { runStandaloneOperation, getSettings, claimWork, bankTransfer, buyItem, getStorePage, claimDaily, convertOrbes, getClaimableRules, claimCollectRules, useInventoryItem } = require('../src/modules/economyService');
 
 function doc(values = {}) {
   return { ...values, toObject: () => ({ ...values }) };
@@ -29,12 +29,11 @@ function query(value) {
 }
 
 describe('atomicidade das operações econômicas', () => {
-  let session;
-
   beforeEach(() => {
-    jest.clearAllMocks();
-    session = { withTransaction: jest.fn(async (operation) => operation()), endSession: jest.fn() };
-    jest.spyOn(mongoose, 'startSession').mockResolvedValue(session);
+    jest.resetAllMocks();
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue({
+      withTransaction: jest.fn(), endSession: jest.fn(),
+    });
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -60,7 +59,7 @@ describe('atomicidade das operações econômicas', () => {
     db.EconomyTransaction.create.mockRejectedValue(new Error('histórico indisponível'));
     await expect(claimWork({ guildId: 'g', userId: 'u', random: () => 250 }))
       .resolves.toMatchObject({ reward: 250, account: { wallet: 250 } });
-    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('histórico econômico'));
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('histórico'));
   });
 
   test('settings existentes recebem as faixas diárias aleatórias uma só vez', async () => {
@@ -84,24 +83,11 @@ describe('atomicidade das operações econômicas', () => {
     );
   });
 
-  test.each([
-    { name: 'MongoServerError', message: 'This MongoDB deployment does not support retryable writes. Please add retryWrites=false to your connection string.' },
-    { code: 20, message: 'Transaction numbers are only allowed on a replica set member or mongos' },
-  ])('operações realmente multirregistro explicam quando não há transações: %j', async (error) => {
-    session.withTransaction.mockRejectedValue(error);
-    const task = jest.fn();
-    await expect(inTransaction(task)).rejects.toMatchObject({
-      publicMessage: expect.stringContaining('transações'), cause: error,
-    });
-    expect(task).not.toHaveBeenCalled();
-    expect(session.endSession).toHaveBeenCalledTimes(1);
-  });
-
-  test('outros erros de transação preservam a causa original', async () => {
-    const failure = new Error('conexão perdida');
-    session.withTransaction.mockRejectedValue(failure);
-    await expect(inTransaction(jest.fn())).rejects.toBe(failure);
-    expect(session.endSession).toHaveBeenCalledTimes(1);
+  test('operações multirregistro executam sem iniciar sessão ou transação Mongo', async () => {
+    const task = jest.fn(async () => ({ standalone: true }));
+    await expect(runStandaloneOperation(task)).resolves.toEqual({ standalone: true });
+    expect(task).toHaveBeenCalledWith();
+    expect(mongoose.startSession).not.toHaveBeenCalled();
   });
 
   test('depósito exige saldo suficiente e atualiza carteira e banco atomicamente', async () => {
@@ -129,7 +115,7 @@ describe('atomicidade das operações econômicas', () => {
     expect(db.EconomyAccount.findOneAndUpdate.mock.calls[1][0].bank).toEqual({ $gte: 3 });
   });
 
-  test('uma compra do último item filtra estoque antes de debitar a carteira', async () => {
+  test('compra sem estoque reverte o débito e não entrega nem registra o item', async () => {
     const item = {
       _id: 'item-id', guildId: 'g', sku: 'antidoto', name: 'Antídoto', description: 'Uso narrativo', emoji: '🧪',
       currency: 'fragments', price: 500, stock: 1, purchaseQuantity: 1, active: true, visibleInStore: true,
@@ -144,7 +130,8 @@ describe('atomicidade das operações econômicas', () => {
       .rejects.toMatchObject({ publicMessage: 'O estoque acabou antes de concluir a compra.' });
 
     expect(db.EconomyItem.findOneAndUpdate.mock.calls[0][0]).toMatchObject({ stock: { $gte: 1 } });
-    expect(db.EconomyAccount.findOneAndUpdate).toHaveBeenCalledTimes(1); // conta preparada; débito não ocorreu
+    expect(db.EconomyAccount.findOneAndUpdate).toHaveBeenCalledTimes(3);
+    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[2][1].$inc.wallet).toBe(500);
     expect(db.EconomyInventory.findOneAndUpdate).not.toHaveBeenCalled();
     expect(db.EconomyTransaction.create).not.toHaveBeenCalled();
   });
@@ -157,7 +144,7 @@ describe('atomicidade das operações econômicas', () => {
       consumeOnUse: true, action: 'none', actionAmount: 0,
     };
     const account = doc({ wallet: 400, bank: 0, orbs: {} });
-    db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(doc({ wallet: 500, bank: 0 })).mockResolvedValueOnce(doc({ wallet: 500, bank: 0 })).mockResolvedValueOnce(account);
+    db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(doc({ wallet: 500, bank: 0 })).mockResolvedValueOnce(account);
     db.EconomyItem.findOne.mockReturnValue(query(item));
     db.EconomyItem.findOneAndUpdate.mockResolvedValue({ ...item, stock: 1, soldCount: 1 });
     db.EconomyInventory.findOne.mockReturnValue(query(null));
@@ -168,8 +155,8 @@ describe('atomicidade das operações econômicas', () => {
       .resolves.toMatchObject({ cost: 100, deliveredToInventory: true, account: { wallet: 400 } });
     expect(db.EconomyItem.findOneAndUpdate.mock.calls[0][0].stock).toEqual({ $gte: 1 });
     expect(db.EconomyItem.findOneAndUpdate.mock.calls[0][1].$inc).toEqual({ soldCount: 1, stock: -1 });
-    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[2][0].wallet).toEqual({ $gte: 100 });
-    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[2][1].$inc.wallet).toBe(-100);
+    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[1][0].wallet).toEqual({ $gte: 100 });
+    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[1][1].$inc.wallet).toBe(-100);
     expect(db.EconomyInventory.findOneAndUpdate.mock.calls[0][1].$inc.quantity).toBe(1);
     expect(db.EconomyTransaction.create.mock.calls[0][0][0]).toMatchObject({ operation: 'item_purchase', walletDelta: -100, itemSku: 'antidoto' });
   });
@@ -272,7 +259,7 @@ describe('atomicidade das operações econômicas', () => {
 
     await expect(useInventoryItem({ guildId: 'g', userId: 'u', sku: 'antidoto' }))
       .resolves.toMatchObject({ consumed: true, item: { name: 'Antídoto' } });
-    expect(db.EconomyInventory.deleteOne).toHaveBeenCalledWith({ _id: 'inventory-row' }, { session });
+    expect(db.EconomyInventory.deleteOne).toHaveBeenCalledWith({ _id: 'inventory-row', quantity: 1 });
     expect(db.EconomyTransaction.create.mock.calls[0][0][0].operation).toBe('item_use');
   });
 
@@ -283,13 +270,19 @@ describe('atomicidade das operações econômicas', () => {
       deletedAt: null, inventoryVisible: true, delivery: 'inventory', stackable: true, usable: false,
       consumeOnUse: true, action: 'none', actionAmount: 0,
     };
-    db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(doc({ wallet: 0, bank: 0 })).mockResolvedValueOnce(doc({ wallet: 0, bank: 0 })).mockResolvedValueOnce(null);
+    db.EconomyAccount.findOneAndUpdate.mockImplementation(async (filter) => (
+      filter.wallet?.$gte === 500 ? null : doc({ wallet: 0, bank: 0 })
+    ));
     db.EconomyItem.findOne.mockReturnValue(query(item));
     db.EconomyItem.findOneAndUpdate.mockResolvedValue(item);
 
     await expect(buyItem({ guildId: 'g', userId: 'u', itemId: 'item-id' }))
       .rejects.toMatchObject({ publicMessage: 'Saldo insuficiente para comprar este item.' });
-    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[2][0].wallet).toEqual({ $gte: 500 });
+    expect(db.EconomyAccount.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ wallet: { $gte: 500 } }),
+      { $inc: { wallet: -500 } },
+      { returnDocument: 'after' },
+    );
     expect(db.EconomyInventory.findOneAndUpdate).not.toHaveBeenCalled();
     expect(db.EconomyTransaction.create).not.toHaveBeenCalled();
   });
@@ -301,7 +294,7 @@ describe('atomicidade das operações econômicas', () => {
       deletedAt: null, inventoryVisible: true, delivery: 'inventory', stackable: true, usable: true, consumeOnUse: false, action: 'none', actionAmount: 0,
     };
     const account = doc({ wallet: 0, bank: 0, orbs: { orange: 0 } });
-    db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(account).mockResolvedValueOnce(account).mockResolvedValueOnce(account);
+    db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(account).mockResolvedValueOnce(account);
     db.EconomyItem.findOne.mockReturnValue(query(item));
     db.EconomyItem.findOneAndUpdate.mockResolvedValue(item);
     db.EconomyInventory.findOne.mockReturnValue(query(null));
@@ -310,8 +303,8 @@ describe('atomicidade das operações econômicas', () => {
 
     await buyItem({ guildId: 'g', userId: 'u', itemId: 'orb-item-id' });
 
-    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[2][0]['orbs.orange']).toEqual({ $gte: 10 });
-    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[2][1].$inc['orbs.orange']).toBe(-10);
+    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[1][0]['orbs.orange']).toEqual({ $gte: 10 });
+    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[1][1].$inc['orbs.orange']).toBe(-10);
     expect(db.EconomyTransaction.create.mock.calls[0][0][0]).toMatchObject({ currency: 'orbs', orbType: 'orange', amount: 10 });
   });
 
@@ -327,7 +320,7 @@ describe('atomicidade das operações econômicas', () => {
       action: 'none', actionAmount: 0,
     };
     const account = doc({ wallet: 100, bank: 0, orbs: {} });
-    db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(account).mockResolvedValueOnce(account).mockResolvedValueOnce(account);
+    db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(account).mockResolvedValueOnce(account);
     db.EconomyItem.findOne.mockReturnValue(query(item));
     db.EconomyItem.findOneAndUpdate.mockResolvedValue(item);
     db.EconomyInventory.findOne.mockReturnValue(query(null));

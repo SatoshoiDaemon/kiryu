@@ -52,9 +52,7 @@ Subcomandos administrativos mais usados:
 
 O Discord não permite que `/loja` abra diretamente uma loja e também tenha subcomandos abaixo dela. Por isso, as duas opções são `/loja fragmentos` e `/loja orbes`. A criação de itens oferece um painel interativo para configurar preço/estoque, disponibilidade, inventário/entrega e ações seguras em etapas.
 
-Saldo, cooldowns de `/trabalhar` e `/daily`, depósitos, saques e conversões são atualizados atomicamente em um único documento de conta e funcionam em MongoDB standalone. O registro de histórico é gravado em seguida; se essa gravação falhar, o saldo permanece correto e o bot registra o problema.
-
-Operações que alteram vários documentos como uma única ação — por exemplo, compras com estoque e inventário e algumas coletas de recompensa — ainda usam transações e exigem MongoDB em replica set. Em standalone, essas operações falham com uma mensagem explicativa; recompensas e operações de saldo continuam disponíveis.
+As operações da economia não usam transações entre documentos e funcionam em MongoDB standalone. Saldo e estoque são atualizados atomicamente em seus respectivos documentos; compras compensam o débito ou a reserva de estoque se uma etapa posterior falhar. O histórico é gravado em seguida e não invalida uma operação já concluída se a gravação falhar.
 
 ## Testes
 
@@ -70,8 +68,6 @@ Para o primeiro envio, faça o deploy pelo workflow ou pelo painel da Square Clo
 
 ### Erro MongoServerError
 
-MongoDB standalone não oferece transações entre vários documentos. Se uma compra,
-entrega de item ou coleta que precise alterar vários registros falhar com esse
-erro, configure um replica set para essas funções. `/trabalhar`, `/daily`, banco
-e conversões de Orbes não dependem dele. Adicionar `retryWrites=false` não ativa
-transações. Os logs incluem mensagem e código do servidor, ocultando credenciais.
+As operações de economia usam atualizações por documento e não exigem replica set.
+Se uma operação falhar, confira o código MongoDB registrado pelo bot; os logs
+ocultam credenciais.

@@ -13,37 +13,19 @@ const { errorDetails } = require('./errorDetails');
 
 const MAX_BALANCE = Number.MAX_SAFE_INTEGER;
 
-async function inTransaction(task) {
-  const session = await mongoose.startSession();
-  let result;
-  try {
-    await session.withTransaction(async () => { result = await task(session); });
-    return result;
-  } catch (error) {
-    // The driver rewrites standalone's code 20 into a code-less retryable-writes error,
-    // even when the failed operation is actually inside a transaction.
-    if ((error?.code === 20 && /transaction|replica set/i.test(error.message))
-      || /deployment does not support retryable writes|transaction numbers are only allowed|does not support (sessions|transactions)/i.test(error?.message || '')) {
-      logger.error('Transações econômicas indisponíveis: ' + errorDetails(error));
-      const failure = new EconomyError('Esta operação atualiza vários registros e precisa de suporte a transações no MongoDB. Avise a administração do bot.');
-      failure.cause = error;
-      throw failure;
-    }
-    throw error;
-  } finally {
-    await session.endSession();
-  }
+async function runStandaloneOperation(task) {
+  return task();
 }
 
-async function ensureAccount(guildId, userId, session) {
+async function ensureAccount(guildId, userId) {
   try {
     return await EconomyAccount.findOneAndUpdate(
       { guildId, userId },
       { $setOnInsert: { guildId, userId, wallet: 0, bank: 0, orbs: { green: 0, blue: 0, orange: 0, red: 0, black: 0, gold: 0 } } },
-      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: false, session },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: false },
     );
   } catch (error) {
-    if (error?.code !== 11000 || session) throw error;
+    if (error?.code !== 11000) throw error;
     return EconomyAccount.findOne({ guildId, userId });
   }
 }
@@ -84,8 +66,11 @@ async function getSettings(guildId) {
   return migrated || EconomySettings.findById(guildId);
 }
 
-function auditRecord(data, session) {
-  return session ? EconomyTransaction.create([data], { session }) : EconomyTransaction.create([data]);
+function auditRecord(data) {
+  return EconomyTransaction.create([data]).catch((error) => {
+    logger.error('Operação econômica concluída sem registrar o histórico (' + errorDetails(error) + ').');
+    return null;
+  });
 }
 
 // Balance changes are committed atomically on EconomyAccount. The optional audit
@@ -256,51 +241,79 @@ function itemAvailability(item, now = new Date()) {
   return { available: true, reason: '' };
 }
 
-async function addInventoryEntry({ guildId, userId, item, quantity, session }) {
+async function addInventoryEntry({ guildId, userId, item, quantity }) {
   const snapshot = itemSnapshot(item);
   if (snapshot.stackable) {
     const slot = snapshot.selectedChoice ? 'choice:' + snapshot.selectedChoice.value : 'stack';
     const filter = { guildId, userId, itemId: item._id, slot };
-    const existing = await EconomyInventory.findOne(filter).session(session).lean();
+    const existing = await EconomyInventory.findOne(filter).lean();
     if (existing) {
       if (existing.quantity > MAX_BALANCE - quantity) throw new EconomyError('O limite de quantidade do inventário seria ultrapassado.');
       const updated = await EconomyInventory.findOneAndUpdate(
         { _id: existing._id, quantity: { $lte: MAX_BALANCE - quantity } },
         { $inc: { quantity } },
-        { returnDocument: 'after', session, runValidators: true },
+        { returnDocument: 'after', runValidators: true },
       );
       if (!updated) throw new EconomyError('O inventário foi alterado em outra operação. Tente novamente.');
       return updated;
     }
-    return EconomyInventory.findOneAndUpdate(
-      filter,
-      { $inc: { quantity }, $setOnInsert: { guildId, userId, itemId: item._id, sku: item.sku, slot, itemSnapshot: snapshot } },
-      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: false, session, runValidators: true },
-    );
+    try {
+      return await EconomyInventory.findOneAndUpdate(
+        filter,
+        { $inc: { quantity }, $setOnInsert: { guildId, userId, itemId: item._id, sku: item.sku, slot, itemSnapshot: snapshot } },
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: false, runValidators: true },
+      );
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      const updated = await EconomyInventory.findOneAndUpdate(
+        { ...filter, quantity: { $lte: MAX_BALANCE - quantity } },
+        { $inc: { quantity } },
+        { returnDocument: 'after', runValidators: true },
+      );
+      if (!updated) throw error;
+      return updated;
+    }
   }
   const entries = Array.from({ length: quantity }, () => ({
     guildId, userId, itemId: item._id, sku: item.sku, slot: new mongoose.Types.ObjectId().toString(), quantity: 1, itemSnapshot: snapshot,
   }));
-  await EconomyInventory.insertMany(entries, { session });
+  await EconomyInventory.insertMany(entries);
   return entries;
 }
 
-async function applyItemAction(accountQuery, item, session) {
+async function applyItemAction(accountQuery, item) {
   const action = item.action || 'none';
   const amount = Number(item.actionAmount || 0);
   if (!amount || action === 'none') return null;
   if (action === 'grant_fragments') {
-    const account = await EconomyAccount.findOneAndUpdate({ ...accountQuery, wallet: { $lte: MAX_BALANCE - amount } }, { $inc: { wallet: amount } }, { returnDocument: 'after', session });
+    const account = await EconomyAccount.findOneAndUpdate({ ...accountQuery, wallet: { $lte: MAX_BALANCE - amount } }, { $inc: { wallet: amount } }, { returnDocument: 'after' });
     if (!account) throw new EconomyError('O limite de saldo impede executar o efeito do item.');
     return account;
   }
   if (action === 'grant_orb' && ORB_TYPES.includes(item.actionOrbType)) {
     const path = 'orbs.' + item.actionOrbType;
-    const account = await EconomyAccount.findOneAndUpdate({ ...accountQuery, [path]: { $lte: MAX_BALANCE - amount } }, { $inc: { [path]: amount } }, { returnDocument: 'after', session });
+    const account = await EconomyAccount.findOneAndUpdate({ ...accountQuery, [path]: { $lte: MAX_BALANCE - amount } }, { $inc: { [path]: amount } }, { returnDocument: 'after' });
     if (!account) throw new EconomyError('O limite de saldo impede executar o efeito do item.');
     return account;
   }
   throw new EconomyError('A ação configurada para este item não é válida.');
+}
+
+async function restorePurchasedBalance(guildId, userId, balancePath, amount) {
+  const account = await EconomyAccount.findOneAndUpdate(
+    { guildId, userId, [balancePath]: { $lte: MAX_BALANCE - amount } },
+    { $inc: { [balancePath]: amount } },
+    { returnDocument: 'after' },
+  );
+  if (!account) logger.error('Não foi possível reverter o débito de uma compra cancelada.');
+}
+
+async function restorePurchasedStock(item, quantity) {
+  const increment = { soldCount: -quantity };
+  const filter = { _id: item._id, guildId: item.guildId, soldCount: { $gte: quantity } };
+  if (item.stock !== null) increment.stock = quantity;
+  const restored = await EconomyItem.findOneAndUpdate(filter, { $inc: increment }, { returnDocument: 'after' });
+  if (!restored) logger.error('Não foi possível reverter o estoque de uma compra cancelada.');
 }
 
 async function buyItem({ guildId, userId, itemId, purchaseChoice = null, now = new Date(), interactionId = null }) {
@@ -309,12 +322,12 @@ async function buyItem({ guildId, userId, itemId, purchaseChoice = null, now = n
     if (previous) return { duplicate: true, transaction: previous };
   }
   await ensureAccount(guildId, userId);
-  return inTransaction(async (session) => {
+  return runStandaloneOperation(async () => {
     if (interactionId) {
-      const previous = await EconomyTransaction.findOne({ idempotencyKey: interactionId }).session(session).lean();
+      const previous = await EconomyTransaction.findOne({ idempotencyKey: interactionId }).lean();
       if (previous) return { duplicate: true, transaction: previous };
     }
-    const item = await EconomyItem.findOne({ _id: itemId, guildId, active: true, visibleInStore: true, deletedAt: null }).session(session).lean();
+    const item = await EconomyItem.findOne({ _id: itemId, guildId, active: true, visibleInStore: true, deletedAt: null }).lean();
     if (!item) throw new EconomyError('Este item não está disponível na loja.');
     const choices = Array.isArray(item.purchaseChoices) ? item.purchaseChoices : [];
     let selectedChoice = null;
@@ -330,46 +343,52 @@ async function buyItem({ guildId, userId, itemId, purchaseChoice = null, now = n
     if (!item.stackable && quantity > 1000) throw new EconomyError('Este item não acumulável excede o limite de unidades por compra.');
     const cost = item.price * quantity;
     if (!Number.isSafeInteger(cost)) throw new EconomyError('O preço configurado para este item é inválido.');
-
-    const purchaseFilter = { _id: item._id, guildId, active: true, visibleInStore: true, deletedAt: null, soldCount: { $lte: MAX_BALANCE - quantity } };
-    const purchaseInc = { soldCount: quantity };
-    if (item.stock !== null) {
-      purchaseFilter.stock = { $gte: quantity };
-      purchaseInc.stock = -quantity;
-    }
-    const updatedItem = await EconomyItem.findOneAndUpdate(purchaseFilter, { $inc: purchaseInc }, { returnDocument: 'after', session });
-    if (!updatedItem) throw new EconomyError(item.stock !== null ? 'O estoque acabou antes de concluir a compra.' : 'Este item não está mais disponível na loja.');
-
-    await ensureAccount(guildId, userId, session);
-    const balancePath = item.currency === 'fragments' ? 'wallet' : 'orbs.' + item.orbType;
     if (item.currency === 'orbs' && !ORB_TYPES.includes(item.orbType)) throw new EconomyError('A moeda configurada para este item é inválida.');
+
+    const balancePath = item.currency === 'fragments' ? 'wallet' : 'orbs.' + item.orbType;
     const account = await EconomyAccount.findOneAndUpdate(
       { guildId, userId, [balancePath]: { $gte: cost } },
       { $inc: { [balancePath]: -cost } },
-      { returnDocument: 'after', session },
+      { returnDocument: 'after' },
     );
     if (!account) throw new EconomyError('Saldo insuficiente para comprar este item.');
 
-    const toInventory = item.delivery === 'inventory' && item.inventoryVisible;
-    let appliedAction = null;
-    const purchasedItem = selectedChoice ? { ...item, selectedChoice } : item;
-    if (toInventory) await addInventoryEntry({ guildId, userId, item: purchasedItem, quantity, session });
-    else appliedAction = await applyItemAction({ guildId, userId }, item, session);
+    let updatedItem = null;
+    try {
+      const purchaseFilter = { _id: item._id, guildId, active: true, visibleInStore: true, deletedAt: null, soldCount: { $lte: MAX_BALANCE - quantity } };
+      const purchaseInc = { soldCount: quantity };
+      if (item.stock !== null) {
+        purchaseFilter.stock = { $gte: quantity };
+        purchaseInc.stock = -quantity;
+      }
+      updatedItem = await EconomyItem.findOneAndUpdate(purchaseFilter, { $inc: purchaseInc }, { returnDocument: 'after' });
+      if (!updatedItem) throw new EconomyError(item.stock !== null ? 'O estoque acabou antes de concluir a compra.' : 'Este item não está mais disponível na loja.');
 
-    const walletDelta = (item.currency === 'fragments' ? -cost : 0) + (appliedAction && item.action === 'grant_fragments' ? item.actionAmount : 0);
-    const orbDelta = {};
-    if (item.currency === 'orbs') orbDelta[item.orbType] = (orbDelta[item.orbType] || 0) - cost;
-    if (appliedAction && item.action === 'grant_orb') orbDelta[item.actionOrbType] = (orbDelta[item.actionOrbType] || 0) + item.actionAmount;
+      const toInventory = item.delivery === 'inventory' && item.inventoryVisible;
+      let appliedAction = null;
+      const purchasedItem = selectedChoice ? { ...item, selectedChoice } : item;
+      if (toInventory) await addInventoryEntry({ guildId, userId, item: purchasedItem, quantity });
+      else appliedAction = await applyItemAction({ guildId, userId }, item);
 
-    const transaction = {
-      guildId, actorId: userId, userId, operation: 'item_purchase', currency: item.currency,
-      orbType: item.orbType, amount: cost, walletDelta,
-      orbDelta: Object.keys(orbDelta).length ? orbDelta : null,
-      itemId: item._id, itemSku: item.sku, itemSnapshot: itemSnapshot(item, selectedChoice),
-      details: { quantity, delivery: toInventory ? 'inventory' : 'immediate', action: item.action, actionAmount: item.actionAmount, purchaseChoice: selectedChoice }, idempotencyKey: interactionId,
-    };
-    await auditRecord(transaction, session);
-    return { account: account.toObject ? account.toObject() : account, item, quantity, cost, deliveredToInventory: toInventory, selectedChoice };
+      const walletDelta = (item.currency === 'fragments' ? -cost : 0) + (appliedAction && item.action === 'grant_fragments' ? item.actionAmount : 0);
+      const orbDelta = {};
+      if (item.currency === 'orbs') orbDelta[item.orbType] = (orbDelta[item.orbType] || 0) - cost;
+      if (appliedAction && item.action === 'grant_orb') orbDelta[item.actionOrbType] = (orbDelta[item.actionOrbType] || 0) + item.actionAmount;
+
+      const transaction = {
+        guildId, actorId: userId, userId, operation: 'item_purchase', currency: item.currency,
+        orbType: item.orbType, amount: cost, walletDelta,
+        orbDelta: Object.keys(orbDelta).length ? orbDelta : null,
+        itemId: item._id, itemSku: item.sku, itemSnapshot: itemSnapshot(item, selectedChoice),
+        details: { quantity, delivery: toInventory ? 'inventory' : 'immediate', action: item.action, actionAmount: item.actionAmount, purchaseChoice: selectedChoice }, idempotencyKey: interactionId,
+      };
+      await auditRecord(transaction);
+      return { account: account.toObject ? account.toObject() : account, item, quantity, cost, deliveredToInventory: toInventory, selectedChoice };
+    } catch (error) {
+      if (updatedItem) await restorePurchasedStock(item, quantity).catch((restoreError) => logger.error('Falha ao reverter estoque após uma compra cancelada (' + errorDetails(restoreError) + ').'));
+      await restorePurchasedBalance(guildId, userId, balancePath, cost).catch((restoreError) => logger.error('Falha ao reverter saldo após uma compra cancelada (' + errorDetails(restoreError) + ').'));
+      throw error;
+    }
   });
 }
 
@@ -390,6 +409,28 @@ async function getStorePage(guildId, currency, { page = 0, pageSize = 4 } = {}) 
   return { items, total, page: currentPage, pageSize, pages };
 }
 
+async function consumeInventoryUnit(entry) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const deleted = await EconomyInventory.deleteOne({ _id: entry._id, quantity: 1 });
+    if (deleted.deletedCount) return;
+    const decremented = await EconomyInventory.updateOne(
+      { _id: entry._id, quantity: { $gt: 1 } },
+      { $inc: { quantity: -1 } },
+    );
+    if (decremented.modifiedCount) return;
+  }
+  throw new EconomyError('O inventário mudou durante o uso. Atualize e tente novamente.');
+}
+
+async function restoreConsumedInventory(entry) {
+  await addInventoryEntry({
+    guildId: entry.guildId,
+    userId: entry.userId,
+    item: { ...entry.itemSnapshot, _id: entry.itemId, sku: entry.sku },
+    quantity: 1,
+  });
+}
+
 async function listInventory(guildId, userId, { page = 0, pageSize = 5 } = {}) {
   const query = { guildId, userId, 'itemSnapshot.inventoryVisible': { $ne: false } };
   const total = await EconomyInventory.countDocuments(query);
@@ -401,56 +442,63 @@ async function listInventory(guildId, userId, { page = 0, pageSize = 5 } = {}) {
 
 async function useInventoryItem({ guildId, userId, sku, now = new Date() }) {
   await ensureAccount(guildId, userId);
-  return inTransaction(async (session) => {
-    const entry = await EconomyInventory.findOne({ guildId, userId, sku }).sort({ slot: 1 }).session(session).lean();
+  return runStandaloneOperation(async () => {
+    const entry = await EconomyInventory.findOne({ guildId, userId, sku }).sort({ slot: 1 }).lean();
     if (!entry) throw new EconomyError('Você não possui esse item no inventário.');
     const item = entry.itemSnapshot;
     if (!item.usable) throw new EconomyError('Esse item não pode ser utilizado.');
-    await ensureAccount(guildId, userId, session);
-    if (item.consumeOnUse) {
-      if (entry.quantity <= 1) await EconomyInventory.deleteOne({ _id: entry._id }, { session });
-      else await EconomyInventory.updateOne({ _id: entry._id, quantity: { $gte: 1 } }, { $inc: { quantity: -1 } }, { session });
+    const consumeOnUse = item.consumeOnUse !== false;
+    let consumed = false;
+    if (consumeOnUse) {
+      await consumeInventoryUnit(entry);
+      consumed = true;
     }
-    const effectAccount = await applyItemAction({ guildId, userId }, item, session);
-    await auditRecord({
-      guildId, actorId: userId, userId, operation: 'item_use', currency: 'item', amount: 1,
-      walletDelta: item.action === 'grant_fragments' ? Number(item.actionAmount || 0) : 0,
-      orbDelta: item.action === 'grant_orb' && item.actionOrbType ? { [item.actionOrbType]: Number(item.actionAmount || 0) } : null,
-      itemId: entry.itemId, itemSku: entry.sku, itemSnapshot: item,
-      details: { consumed: item.consumeOnUse, usedAt: new Date(now), action: item.action, actionAmount: item.actionAmount },
-    }, session);
-    return { item: itemSnapshot(item), consumed: item.consumeOnUse, effectAccount };
+    let effectAccount;
+    try {
+      effectAccount = await applyItemAction({ guildId, userId }, item);
+      await auditRecord({
+        guildId, actorId: userId, userId, operation: 'item_use', currency: 'item', amount: 1,
+        walletDelta: item.action === 'grant_fragments' ? Number(item.actionAmount || 0) : 0,
+        orbDelta: item.action === 'grant_orb' && item.actionOrbType ? { [item.actionOrbType]: Number(item.actionAmount || 0) } : null,
+        itemId: entry.itemId, itemSku: entry.sku, itemSnapshot: item,
+        details: { consumed, usedAt: new Date(now), action: item.action, actionAmount: item.actionAmount },
+      });
+    } catch (error) {
+      if (consumed) await restoreConsumedInventory(entry).catch((restoreError) => logger.error('Falha ao devolver item após uso cancelado (' + errorDetails(restoreError) + ').'));
+      throw error;
+    }
+    return { item: itemSnapshot(item), consumed, effectAccount };
   });
 }
 
 async function deliverItem({ guildId, actorId, userId, sku, quantity }) {
   assertAmount(quantity, 'Quantidade', { max: 1000000 });
-  return inTransaction(async (session) => {
-    const item = await EconomyItem.findOne({ guildId, sku: String(sku).toLowerCase(), deletedAt: null }).session(session).lean();
+  return runStandaloneOperation(async () => {
+    const item = await EconomyItem.findOne({ guildId, sku: String(sku).toLowerCase(), deletedAt: null }).lean();
     if (!item) throw new EconomyError('Item não encontrado no catálogo.');
     if (!item.inventoryVisible) throw new EconomyError('Este item está configurado para não aparecer no inventário.');
     if (!item.stackable && quantity > 1000) throw new RangeError('Itens não acumuláveis podem entregar até 1.000 unidades por operação.');
-    await addInventoryEntry({ guildId, userId, item, quantity, session });
-    await auditRecord({ guildId, actorId, userId, operation: 'admin_item_delivery', currency: 'item', amount: quantity, itemId: item._id, itemSku: item.sku, itemSnapshot: itemSnapshot(item) }, session);
+    await addInventoryEntry({ guildId, userId, item, quantity });
+    await auditRecord({ guildId, actorId, userId, operation: 'admin_item_delivery', currency: 'item', amount: quantity, itemId: item._id, itemSku: item.sku, itemSnapshot: itemSnapshot(item) });
     return item;
   });
 }
 
 async function removeInventoryItems({ guildId, actorId, userId, sku, quantity }) {
   assertAmount(quantity, 'Quantidade', { max: 1000000 });
-  return inTransaction(async (session) => {
-    const entries = await EconomyInventory.find({ guildId, userId, sku: String(sku).toLowerCase() }).sort({ slot: 1 }).session(session).lean();
+  return runStandaloneOperation(async () => {
+    const entries = await EconomyInventory.find({ guildId, userId, sku: String(sku).toLowerCase() }).sort({ slot: 1 }).lean();
     const owned = entries.reduce((total, entry) => total + entry.quantity, 0);
     if (owned < quantity) throw new EconomyError('O usuário não possui essa quantidade no inventário.');
     let remaining = quantity;
     for (const entry of entries) {
       if (!remaining) break;
       const removed = Math.min(entry.quantity, remaining);
-      if (removed === entry.quantity) await EconomyInventory.deleteOne({ _id: entry._id }, { session });
-      else await EconomyInventory.updateOne({ _id: entry._id, quantity: { $gte: removed } }, { $inc: { quantity: -removed } }, { session });
+      if (removed === entry.quantity) await EconomyInventory.deleteOne({ _id: entry._id, quantity: entry.quantity });
+      else await EconomyInventory.updateOne({ _id: entry._id, quantity: { $gte: removed } }, { $inc: { quantity: -removed } });
       remaining -= removed;
     }
-    await auditRecord({ guildId, actorId, userId, operation: 'admin_item_removal', currency: 'item', amount: quantity, itemSku: String(sku).toLowerCase() }, session);
+    await auditRecord({ guildId, actorId, userId, operation: 'admin_item_removal', currency: 'item', amount: quantity, itemSku: String(sku).toLowerCase() });
     return { removed: quantity };
   });
 }
@@ -472,35 +520,44 @@ async function claimCollectRules({ guildId, userId, roleIds = [], ruleIds, now =
   if (!ruleIds.length || ruleIds.length > 25) throw new RangeError('Selecione ao menos uma recompensa disponível.');
   if (!roleIds.length) throw new EconomyError('Você não possui cargo elegível para coletar essa recompensa.');
   await ensureAccount(guildId, userId);
-  return inTransaction(async (session) => {
-    const rules = await EconomyCollectRule.find({ guildId, _id: { $in: ruleIds }, roleId: { $in: roleIds }, active: true }).session(session).lean();
+  return runStandaloneOperation(async () => {
+    const rules = await EconomyCollectRule.find({ guildId, _id: { $in: ruleIds }, roleId: { $in: roleIds }, active: true }).lean();
     if (!rules.length) throw new EconomyError('Você não possui cargo elegível para essa recompensa.');
     if (rules.length !== new Set(ruleIds.map(String)).size) throw new EconomyError('Uma das regras de coleta foi alterada ou removida. Atualize o comando e tente novamente.');
     if (rules.some((rule) => !isCalendarDue(rule, now))) throw new EconomyError('Essa recompensa ainda não chegou à data de coleta.');
     if (rules.length > 1 && rules.some((rule) => !rule.stackable)) throw new EconomyError('Uma ou mais recompensas só podem ser coletadas individualmente.');
-    await ensureAccount(guildId, userId, session);
+    await ensureAccount(guildId, userId);
     const fragments = rules.reduce((sum, rule) => sum + rule.fragments, 0);
     const orbDelta = {};
     for (const rule of rules) if (rule.orbType && rule.orbAmount) orbDelta[rule.orbType] = (orbDelta[rule.orbType] || 0) + rule.orbAmount;
     const inc = { wallet: fragments };
     for (const [type, amount] of Object.entries(orbDelta)) inc['orbs.' + type] = amount;
     const orbBounds = Object.fromEntries(Object.entries(orbDelta).map(([type, amount]) => ['orbs.' + type, { $lte: MAX_BALANCE - amount }]));
-    const account = await EconomyAccount.findOneAndUpdate(
-      { guildId, userId, wallet: { $lte: MAX_BALANCE - fragments }, ...orbBounds },
-      { $inc: inc },
-      { returnDocument: 'after', session },
-    );
-    if (!account) throw new EconomyError('O limite de saldo impede creditar essa recompensa.');
-    const claims = rules.map((rule) => ({ guildId, userId, ruleId: rule._id, periodKey: periodKey(rule, now), collectedAt: new Date(now) }));
+    const claims = rules.map((rule) => ({
+      _id: new mongoose.Types.ObjectId(), guildId, userId, ruleId: rule._id,
+      periodKey: periodKey(rule, now), collectedAt: new Date(now),
+    }));
     try {
-      await EconomyClaim.insertMany(claims, { session, ordered: true });
+      await EconomyClaim.insertMany(claims, { ordered: true });
     } catch (error) {
+      await EconomyClaim.deleteMany({ _id: { $in: claims.map((claim) => claim._id) } }).catch((cleanupError) => {
+        logger.error('Falha ao limpar reivindicações parciais (' + errorDetails(cleanupError) + ').');
+      });
       if (error?.code === 11000 || error?.writeErrors?.some((entry) => entry.code === 11000)) {
         throw new EconomyError('Uma ou mais recompensas já foram coletadas neste período.');
       }
       throw error;
     }
-    await auditRecord({ guildId, actorId: userId, userId, operation: 'collect_role_reward', currency: 'mixed', amount: fragments, walletDelta: fragments, orbDelta, details: { ruleIds: rules.map((rule) => String(rule._id)), collectedAt: new Date(now) } }, session);
+    const account = await EconomyAccount.findOneAndUpdate(
+      { guildId, userId, wallet: { $lte: MAX_BALANCE - fragments }, ...orbBounds },
+      { $inc: inc },
+      { returnDocument: 'after' },
+    );
+    if (!account) {
+      await EconomyClaim.deleteMany({ _id: { $in: claims.map((claim) => claim._id) } });
+      throw new EconomyError('O limite de saldo impede creditar essa recompensa.');
+    }
+    await auditRecord({ guildId, actorId: userId, userId, operation: 'collect_role_reward', currency: 'mixed', amount: fragments, walletDelta: fragments, orbDelta, details: { ruleIds: rules.map((rule) => String(rule._id)), collectedAt: new Date(now) } });
     return { account: account.toObject ? account.toObject() : account, rules, fragments, orbDelta };
   });
 }
@@ -511,20 +568,20 @@ async function listTransactions(guildId, userId, limit = 25, page = 0) {
 }
 
 async function deleteCatalogItem({ guildId, actorId, sku }) {
-  return inTransaction(async (session) => {
+  return runStandaloneOperation(async () => {
     const item = await EconomyItem.findOneAndUpdate(
       { guildId, sku: String(sku).toLowerCase(), deletedAt: null },
       { $set: { active: false, deletedAt: new Date(), updatedBy: actorId } },
-      { returnDocument: 'after', session },
+      { returnDocument: 'after' },
     );
     if (!item) throw new EconomyError('Item não encontrado ou já removido.');
-    await auditRecord({ guildId, actorId, userId: actorId, operation: 'admin_item_delete', currency: 'item', itemId: item._id, itemSku: item.sku, itemSnapshot: itemSnapshot(item) }, session);
+    await auditRecord({ guildId, actorId, userId: actorId, operation: 'admin_item_delete', currency: 'item', itemId: item._id, itemSku: item.sku, itemSnapshot: itemSnapshot(item) });
     return item;
   });
 }
 
 module.exports = {
-  inTransaction, ensureAccount, getAccount, getSettings, adjustFragments, adjustOrbs, bankTransfer,
+  runStandaloneOperation, ensureAccount, getAccount, getSettings, adjustFragments, adjustOrbs, bankTransfer,
   convertOrbes, claimWork, claimDaily, itemAvailability, itemSnapshot, buyItem, getStoreItem, getStorePage,
   listInventory, useInventoryItem, deliverItem, removeInventoryItems, getClaimableRules,
   claimCollectRules, listTransactions, deleteCatalogItem,
