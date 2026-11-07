@@ -226,7 +226,7 @@ async function claimDaily({ guildId, userId, now = Date.now(), random = crypto.r
   return { account: account.toObject ? account.toObject() : account, fragments, orbs, collectedAt: new Date(now), cooldownMs: settings.daily.cooldownMs };
 }
 
-function itemSnapshot(item) {
+function itemSnapshot(item, selectedChoice = item.selectedChoice || null) {
   return {
     name: item.name,
     emoji: item.emoji || '📦',
@@ -240,6 +240,11 @@ function itemSnapshot(item) {
     actionAmount: Number(item.actionAmount || 0),
     actionOrbType: item.actionOrbType || null,
     stackable: item.stackable !== false,
+    selectedChoice: selectedChoice ? {
+      value: selectedChoice.value,
+      label: selectedChoice.label,
+      description: selectedChoice.description || '',
+    } : null,
   };
 }
 
@@ -254,7 +259,8 @@ function itemAvailability(item, now = new Date()) {
 async function addInventoryEntry({ guildId, userId, item, quantity, session }) {
   const snapshot = itemSnapshot(item);
   if (snapshot.stackable) {
-    const filter = { guildId, userId, itemId: item._id, slot: 'stack' };
+    const slot = snapshot.selectedChoice ? 'choice:' + snapshot.selectedChoice.value : 'stack';
+    const filter = { guildId, userId, itemId: item._id, slot };
     const existing = await EconomyInventory.findOne(filter).session(session).lean();
     if (existing) {
       if (existing.quantity > MAX_BALANCE - quantity) throw new EconomyError('O limite de quantidade do inventário seria ultrapassado.');
@@ -268,7 +274,7 @@ async function addInventoryEntry({ guildId, userId, item, quantity, session }) {
     }
     return EconomyInventory.findOneAndUpdate(
       filter,
-      { $inc: { quantity }, $setOnInsert: { guildId, userId, itemId: item._id, sku: item.sku, slot: 'stack', itemSnapshot: snapshot } },
+      { $inc: { quantity }, $setOnInsert: { guildId, userId, itemId: item._id, sku: item.sku, slot, itemSnapshot: snapshot } },
       { upsert: true, returnDocument: 'after', setDefaultsOnInsert: false, session, runValidators: true },
     );
   }
@@ -297,7 +303,7 @@ async function applyItemAction(accountQuery, item, session) {
   throw new EconomyError('A ação configurada para este item não é válida.');
 }
 
-async function buyItem({ guildId, userId, itemId, now = new Date(), interactionId = null }) {
+async function buyItem({ guildId, userId, itemId, purchaseChoice = null, now = new Date(), interactionId = null }) {
   if (interactionId) {
     const previous = await EconomyTransaction.findOne({ idempotencyKey: interactionId }).lean();
     if (previous) return { duplicate: true, transaction: previous };
@@ -310,6 +316,14 @@ async function buyItem({ guildId, userId, itemId, now = new Date(), interactionI
     }
     const item = await EconomyItem.findOne({ _id: itemId, guildId, active: true, visibleInStore: true, deletedAt: null }).session(session).lean();
     if (!item) throw new EconomyError('Este item não está disponível na loja.');
+    const choices = Array.isArray(item.purchaseChoices) ? item.purchaseChoices : [];
+    let selectedChoice = null;
+    if (choices.length) {
+      selectedChoice = choices.find((choice) => choice.value === purchaseChoice) || null;
+      if (!selectedChoice) throw new EconomyError('Escolha uma das opções disponíveis para este item antes de comprar.');
+    } else if (purchaseChoice != null) {
+      throw new EconomyError('Este item não possui opções de compra. Atualize a loja e tente novamente.');
+    }
     const availability = itemAvailability(item, now);
     if (!availability.available) throw new EconomyError(availability.reason);
     const quantity = item.purchaseQuantity;
@@ -338,7 +352,8 @@ async function buyItem({ guildId, userId, itemId, now = new Date(), interactionI
 
     const toInventory = item.delivery === 'inventory' && item.inventoryVisible;
     let appliedAction = null;
-    if (toInventory) await addInventoryEntry({ guildId, userId, item, quantity, session });
+    const purchasedItem = selectedChoice ? { ...item, selectedChoice } : item;
+    if (toInventory) await addInventoryEntry({ guildId, userId, item: purchasedItem, quantity, session });
     else appliedAction = await applyItemAction({ guildId, userId }, item, session);
 
     const walletDelta = (item.currency === 'fragments' ? -cost : 0) + (appliedAction && item.action === 'grant_fragments' ? item.actionAmount : 0);
@@ -350,12 +365,20 @@ async function buyItem({ guildId, userId, itemId, now = new Date(), interactionI
       guildId, actorId: userId, userId, operation: 'item_purchase', currency: item.currency,
       orbType: item.orbType, amount: cost, walletDelta,
       orbDelta: Object.keys(orbDelta).length ? orbDelta : null,
-      itemId: item._id, itemSku: item.sku, itemSnapshot: itemSnapshot(item),
-      details: { quantity, delivery: toInventory ? 'inventory' : 'immediate', action: item.action, actionAmount: item.actionAmount }, idempotencyKey: interactionId,
+      itemId: item._id, itemSku: item.sku, itemSnapshot: itemSnapshot(item, selectedChoice),
+      details: { quantity, delivery: toInventory ? 'inventory' : 'immediate', action: item.action, actionAmount: item.actionAmount, purchaseChoice: selectedChoice }, idempotencyKey: interactionId,
     };
     await auditRecord(transaction, session);
-    return { account: account.toObject ? account.toObject() : account, item, quantity, cost, deliveredToInventory: toInventory };
+    return { account: account.toObject ? account.toObject() : account, item, quantity, cost, deliveredToInventory: toInventory, selectedChoice };
   });
+}
+
+async function getStoreItem(guildId, itemId, currency) {
+  const item = await EconomyItem.findOne({ _id: itemId, guildId, currency, active: true, visibleInStore: true, deletedAt: null }).lean();
+  if (!item) throw new EconomyError('Este item não está disponível na loja. Atualize a página e tente novamente.');
+  const availability = itemAvailability(item);
+  if (!availability.available) throw new EconomyError(availability.reason);
+  return item;
 }
 
 async function getStorePage(guildId, currency, { page = 0, pageSize = 4 } = {}) {
@@ -502,7 +525,7 @@ async function deleteCatalogItem({ guildId, actorId, sku }) {
 
 module.exports = {
   inTransaction, ensureAccount, getAccount, getSettings, adjustFragments, adjustOrbs, bankTransfer,
-  convertOrbes, claimWork, claimDaily, itemAvailability, itemSnapshot, buyItem, getStorePage,
+  convertOrbes, claimWork, claimDaily, itemAvailability, itemSnapshot, buyItem, getStoreItem, getStorePage,
   listInventory, useInventoryItem, deliverItem, removeInventoryItems, getClaimableRules,
   claimCollectRules, listTransactions, deleteCatalogItem,
 };

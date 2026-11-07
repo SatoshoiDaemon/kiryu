@@ -19,6 +19,8 @@ Bot do servidor Eternity Realms com XP, níveis, economia, inventário, lojas, c
 
 O bot usa o banco kiryu por padrão. Defina MONGODB_DB_NAME para escolher outro nome. A inicialização cria as coleções e índices necessários; novas configurações, contas e perfis são gravados sob demanda.
 
+Ao iniciar o bot ou executar `npm run db:setup`, o catálogo da loja do `SERVER_ID` também é sincronizado por `guildId + sku`: 23 produtos de Fragmentos e 3 produtos de Orbes. O seed pode ser executado novamente; ele atualiza esses produtos sem apagar saldos, transações ou quantidades já adquiridas. Tomo do Esquecimento e Lágrima Larval são mantidos na loja de Orbes.
+
 O arquivo .env existente pode continuar usando o nome antigo DICORD_TOKEN; DISCORD_TOKEN é o nome recomendado para novas instalações.
 
 ## Comandos
@@ -36,6 +38,8 @@ O arquivo .env existente pode continuar usando o nome antigo DICORD_TOKEN; DISCO
 Fragmentos têm saldo separado de carteira e banco. /carteira exibe os saldos e oferece atalhos para inventário, depósito e saque. Orbes são saldos independentes em seis categorias; /orbes permite converter quantidades múltiplas de 10 para a categoria seguinte depois de uma prévia e confirmação. A recompensa diária sorteia cada valor de forma independente: 400–1.000 Fragmentos, 10–100 Orbes verdes, 10–50 azuis e 5–10 laranjas; Orbes vermelhas, pretas e douradas começam em zero. `/economia daily-config` permite alterar cada mínimo e máximo, e configurações diárias antigas recebem essas faixas padrão uma única vez.
 
 As lojas usam Containers e Components V2, têm três itens por página e verificam estoque e datas de disponibilidade no servidor durante cada compra. O histórico registra compras, usos, recompensas, depósitos, saques e ações administrativas. Itens removidos do catálogo continuam nos inventários e nos registros existentes.
+
+Bola de Cristal e Minérios Tier 1 e 2 apresentam suas opções ao iniciar a compra; a escolha fica registrada no inventário e no histórico. Tomo do Esquecimento, Lágrima Larval e Manual da Guerra exibem instruções para procurar a staff e permanecem no inventário após o uso. O uso fica no histórico de transações; a staff conclui o procedimento e pode remover o item pelo subcomando `/economia item-remover`. Nenhum reset ou evolução de personagem é automático. Itens com duração ou contagem de usos no RP também permanecem no inventário; o bot não controla essas cargas/sessões, que ficam a cargo da staff.
 
 Subcomandos administrativos mais usados:
 

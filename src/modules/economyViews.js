@@ -70,7 +70,10 @@ function storeContainer(items, currency, page, pages, now = new Date()) {
     items.forEach((item, index) => {
       if (index) container.addSeparatorComponents(new SeparatorBuilder());
       const status = availabilityLabel(item, now);
-      const description = String(item.description || 'Sem descrição.').slice(0, 950);
+      const choiceText = item.purchaseChoices?.length
+        ? '\n\n' + item.purchaseChoices.map((choice) => '• ' + choice.label).join('\n')
+        : '';
+      const description = String((item.description || 'Sem descrição.') + choiceText).slice(0, 950);
       const itemText = '**' + (item.emoji || '📦') + ' ' + item.name + '**\n' + description + '\n\n' + status;
       const button = new ButtonBuilder()
         .setCustomId('econ:store:buy:' + item._id + ':' + currency + ':' + page + ':' + index)
@@ -106,7 +109,8 @@ function inventoryContainer(pageData, userId, ownerId, page = 0) {
       const item = entry.itemSnapshot;
       const description = String(item.description || 'Sem descrição.').slice(0, 800);
       const usable = item.usable ? '✅ Utilizável' : '⛔ Não utilizável';
-      const text = '**' + (item.emoji || '📦') + ' ' + item.name + '** × ' + entry.quantity.toLocaleString('pt-BR') + '\n' + description + '\n\n' + usable + ' · ID: `' + entry.sku + '`';
+      const selectedChoice = item.selectedChoice?.label ? '\n**Escolha:** ' + item.selectedChoice.label : '';
+      const text = '**' + (item.emoji || '📦') + ' ' + item.name + '** × ' + entry.quantity.toLocaleString('pt-BR') + '\n' + description + selectedChoice + '\n\n' + usable + ' · ID: `' + entry.sku + '`';
       const button = new ButtonBuilder()
         .setCustomId('econ:inventory:use:' + ownerId + ':' + entry.sku + ':' + page + ':' + index)
         .setLabel(item.usable ? 'Usar' : 'Não utilizável')

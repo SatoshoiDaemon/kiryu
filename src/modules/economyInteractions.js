@@ -1,10 +1,10 @@
 const {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, ModalBuilder,
-  TextInputBuilder, TextInputStyle,
+  StringSelectMenuBuilder, TextInputBuilder, TextInputStyle,
 } = require('discord.js');
 const { isAuthorized } = require('./permissions');
 const {
-  getAccount, buyItem, listInventory, useInventoryItem, bankTransfer,
+  getAccount, buyItem, getStoreItem, listInventory, useInventoryItem, bankTransfer,
   convertOrbes, getClaimableRules, claimCollectRules, deleteCatalogItem, getStorePage,
 } = require('./economyService');
 const { editCatalogItem } = require('./economyAdminService');
@@ -202,10 +202,27 @@ async function handleEconomyInteraction(interaction) {
       }
       if (parts[1] === 'store' && parts[2] === 'buy') {
         const itemId = parts[3];
+        const currency = parts[4] === 'orbs' ? 'orbs' : 'fragments';
+        const page = Number(parts[5]) || 0;
+        const storeItem = await getStoreItem(interaction.guildId, itemId, currency);
+        if (storeItem.purchaseChoices?.length) {
+          const select = new StringSelectMenuBuilder()
+            .setCustomId('econ:store:choice:' + interaction.user.id + ':' + itemId + ':' + currency + ':' + page)
+            .setPlaceholder('Escolha uma opção para comprar')
+            .addOptions(storeItem.purchaseChoices.map((choice) => ({
+              label: choice.label,
+              value: choice.value,
+              description: choice.description || choice.label,
+            })));
+          return replyTextWithRows(interaction,
+            '# Escolha · ' + storeItem.emoji + ' ' + storeItem.name + '\n' + storeItem.description + '\n\nSelecione uma opção para concluir a compra por **' + (storeItem.currency === 'fragments' ? formatFragments(storeItem.price) : storeItem.price.toLocaleString('pt-BR') + ' ' + ORBS[storeItem.orbType].emoji) + '**.',
+            [new ActionRowBuilder().addComponents(select)],
+          );
+        }
         const result = await buyItem({ guildId: interaction.guildId, userId: interaction.user.id, itemId, interactionId: interaction.id });
         if (result.duplicate) return replyText(interaction, 'Esta compra já foi processada.');
         const delivery = result.deliveredToInventory ? 'O item foi adicionado ao seu inventário.' : 'A entrega configurada foi processada imediatamente.';
-        await showStore(interaction, parts[4], Number(parts[5]) || 0, true);
+        await showStore(interaction, currency, page, true);
         return replyText(interaction, '## Compra concluída\nVocê comprou **' + result.item.emoji + ' ' + result.item.name + '** × ' + result.quantity.toLocaleString('pt-BR') + ' por ' + (result.item.currency === 'fragments' ? formatFragments(result.cost) : result.cost.toLocaleString('pt-BR') + ' ' + ORBS[result.item.orbType].emoji) + '.\n' + delivery);
       }
       if (parts[1] === 'inventory' && parts[2] === 'page') {
@@ -286,6 +303,17 @@ async function handleEconomyInteraction(interaction) {
     }
 
     if (interaction.isStringSelectMenu()) {
+      if (parts[1] === 'store' && parts[2] === 'choice') {
+        const ownerId = parts[3];
+        verifyOwner(interaction, ownerId);
+        const itemId = parts[4];
+        const result = await buyItem({ guildId: interaction.guildId, userId: interaction.user.id, itemId, purchaseChoice: interaction.values[0], interactionId: interaction.id });
+        if (result.duplicate) return interaction.update(interactionUpdate(basicContainer('Esta compra já foi processada.')));
+        const payment = result.item.currency === 'fragments' ? formatFragments(result.cost) : result.cost.toLocaleString('pt-BR') + ' ' + ORBS[result.item.orbType].emoji;
+        const delivery = result.deliveredToInventory ? 'O item foi adicionado ao seu inventário.' : 'A entrega configurada foi processada imediatamente.';
+        const choice = result.selectedChoice?.label ? '\n**Escolha:** ' + result.selectedChoice.label : '';
+        return interaction.update(interactionUpdate(basicContainer('## Compra concluída\nVocê comprou **' + result.item.emoji + ' ' + result.item.name + '** × ' + result.quantity.toLocaleString('pt-BR') + ' por ' + payment + '.' + choice + '\n' + delivery)));
+      }
       if (parts[1] === 'orbs' && parts[2] === 'source') {
         verifyOwner(interaction, parts[3]);
         const source = interaction.values[0];

@@ -1,5 +1,11 @@
 const mongoose = require('mongoose');
 
+const selectedChoiceSchema = new mongoose.Schema({
+  value: { type: String, default: null },
+  label: { type: String, default: null },
+  description: { type: String, default: '' },
+}, { _id: false });
+
 const economyInventorySchema = new mongoose.Schema({
   guildId: { type: String, required: true },
   userId: { type: String, required: true },
@@ -20,6 +26,7 @@ const economyInventorySchema = new mongoose.Schema({
     actionAmount: { type: Number, default: 0 },
     actionOrbType: { type: String, default: null },
     stackable: { type: Boolean, default: true },
+    selectedChoice: { type: selectedChoiceSchema, default: null },
   },
 }, { timestamps: true, versionKey: false });
 

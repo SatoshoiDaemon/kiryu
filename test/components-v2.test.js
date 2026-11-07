@@ -99,6 +99,21 @@ describe('respostas de Components V2', () => {
     expectValidV2Components(inventoryContainer({ items: inventoryItems, total: 2, pages: 1 }, 'user', 'user'));
   });
 
+  test('loja mostra as alternativas de compra para produtos com escolha', () => {
+    const component = storeContainer([{
+      _id: 'crystal', name: 'Bola de Cristal', description: 'Escolha seu modelo:', price: 900, purchaseQuantity: 1,
+      purchaseChoices: [
+        { value: 'increase', label: '1. Aumenta o custo e o dano em 20%.' },
+        { value: 'decrease', label: '2. Diminui o custo e o dano em 20%.' },
+      ],
+      currency: 'fragments', stock: null, availableFrom: null, availableUntil: null,
+    }], 'fragments', 0, 1);
+    const rendered = JSON.stringify(component.toJSON());
+    expect(rendered).toContain('1. Aumenta o custo e o dano em 20%.');
+    expect(rendered).toContain('2. Diminui o custo e o dano em 20%.');
+    expectValidV2Components(component);
+  });
+
   test('os outros layouts V2 da economia mantêm IDs interativos únicos', () => {
     const user = { id: 'user', username: 'Usuário', toString: () => '<@user>' };
     const account = { wallet: 10, bank: 20, orbs: {} };

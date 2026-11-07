@@ -1,5 +1,11 @@
 const mongoose = require('mongoose');
 
+const purchaseChoiceSchema = new mongoose.Schema({
+  value: { type: String, required: true, trim: true, maxlength: 100 },
+  label: { type: String, required: true, trim: true, maxlength: 100 },
+  description: { type: String, default: '', trim: true, maxlength: 100 },
+}, { _id: false });
+
 const economyItemSchema = new mongoose.Schema({
   guildId: { type: String, required: true, index: true },
   sku: { type: String, required: true, trim: true, lowercase: true, maxlength: 32 },
@@ -18,6 +24,7 @@ const economyItemSchema = new mongoose.Schema({
   usable: { type: Boolean, default: false },
   consumeOnUse: { type: Boolean, default: true },
   purchaseQuantity: { type: Number, default: 1, min: 1, max: 1000000, validate: (value) => value == null || Number.isSafeInteger(value) },
+  purchaseChoices: { type: [purchaseChoiceSchema], default: [] },
   delivery: { type: String, enum: ['inventory', 'immediate'], default: 'inventory' },
   effectDescription: { type: String, default: '', maxlength: 1000 },
   useMessage: { type: String, default: '', maxlength: 1000 },

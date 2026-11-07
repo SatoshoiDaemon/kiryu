@@ -12,6 +12,7 @@ const EconomyTransaction = require('./models/EconomyTransaction');
 const EconomySettings = require('./models/EconomySettings');
 const EconomyCollectRule = require('./models/EconomyCollectRule');
 const EconomyClaim = require('./models/EconomyClaim');
+const { seedEconomyStores } = require('./seeds/economyStores');
 
 function createTlsContext() {
   const { ca, certificate, key } = config.certificates;
@@ -51,6 +52,12 @@ async function initializeDatabase() {
   const models = [UserXp, GuildConfig, EconomyAccount, EconomyItem, EconomyInventory, EconomyTransaction, EconomySettings, EconomyCollectRule, EconomyClaim];
   await Promise.all(models.map((model) => model.createCollection().catch(ignoreNamespaceExists)));
   await Promise.all(models.map((model) => model.createIndexes()));
+  if (config.guildId) {
+    const seeded = await seedEconomyStores(config.guildId);
+    logger.info('Lojas da economia sincronizadas: ' + seeded.fragments + ' produtos de Fragmentos e ' + seeded.orbs + ' produtos de Orbes.');
+  } else {
+    logger.warn('Seed das lojas ignorado porque SERVER_ID não está configurado.');
+  }
   logger.info('Coleções e índices do Kiryu inicializados.');
 }
 

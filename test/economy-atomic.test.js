@@ -1,6 +1,6 @@
 jest.mock('../src/database', () => ({
   EconomyAccount: { findOneAndUpdate: jest.fn(), findOne: jest.fn() },
-  EconomyItem: { findOne: jest.fn(), findOneAndUpdate: jest.fn() },
+  EconomyItem: { findOne: jest.fn(), findOneAndUpdate: jest.fn(), countDocuments: jest.fn(), find: jest.fn() },
   EconomyInventory: { findOneAndUpdate: jest.fn(), insertMany: jest.fn(), findOne: jest.fn(), deleteOne: jest.fn(), updateOne: jest.fn() },
   EconomyTransaction: { findOne: jest.fn(), create: jest.fn() },
   EconomySettings: { findById: jest.fn(), findOneAndUpdate: jest.fn(), create: jest.fn() },
@@ -13,7 +13,7 @@ jest.mock('../src/logger', () => ({ error: jest.fn() }));
 const mongoose = require('mongoose');
 const logger = require('../src/logger');
 const db = require('../src/database');
-const { inTransaction, getSettings, claimWork, bankTransfer, buyItem, claimDaily, convertOrbes, getClaimableRules, claimCollectRules, useInventoryItem } = require('../src/modules/economyService');
+const { inTransaction, getSettings, claimWork, bankTransfer, buyItem, getStorePage, claimDaily, convertOrbes, getClaimableRules, claimCollectRules, useInventoryItem } = require('../src/modules/economyService');
 
 function doc(values = {}) {
   return { ...values, toObject: () => ({ ...values }) };
@@ -292,5 +292,134 @@ describe('atomicidade das operações econômicas', () => {
     expect(db.EconomyAccount.findOneAndUpdate.mock.calls[2][0].wallet).toEqual({ $gte: 500 });
     expect(db.EconomyInventory.findOneAndUpdate).not.toHaveBeenCalled();
     expect(db.EconomyTransaction.create).not.toHaveBeenCalled();
+  });
+
+  test('compra com Orbes debita a denominação configurada pelo catálogo', async () => {
+    const item = {
+      _id: 'orb-item-id', guildId: 'g', sku: 'tomo-esquecimento', name: 'Tomo do Esquecimento', description: 'Reset de classes', emoji: '📖',
+      currency: 'orbs', orbType: 'orange', price: 10, stock: null, soldCount: 0, purchaseQuantity: 1, active: true, visibleInStore: true,
+      deletedAt: null, inventoryVisible: true, delivery: 'inventory', stackable: true, usable: true, consumeOnUse: false, action: 'none', actionAmount: 0,
+    };
+    const account = doc({ wallet: 0, bank: 0, orbs: { orange: 0 } });
+    db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(account).mockResolvedValueOnce(account).mockResolvedValueOnce(account);
+    db.EconomyItem.findOne.mockReturnValue(query(item));
+    db.EconomyItem.findOneAndUpdate.mockResolvedValue(item);
+    db.EconomyInventory.findOne.mockReturnValue(query(null));
+    db.EconomyInventory.findOneAndUpdate.mockResolvedValue({ quantity: 1 });
+    db.EconomyTransaction.create.mockResolvedValue([]);
+
+    await buyItem({ guildId: 'g', userId: 'u', itemId: 'orb-item-id' });
+
+    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[2][0]['orbs.orange']).toEqual({ $gte: 10 });
+    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[2][1].$inc['orbs.orange']).toBe(-10);
+    expect(db.EconomyTransaction.create.mock.calls[0][0][0]).toMatchObject({ currency: 'orbs', orbType: 'orange', amount: 10 });
+  });
+
+  test('compra com escolha salva a opção escolhida no inventário e no histórico', async () => {
+    const item = {
+      _id: 'crystal-id', guildId: 'g', sku: 'bola-de-cristal', name: 'Bola de Cristal', description: 'Escolha um modelo', emoji: '🔮',
+      currency: 'fragments', price: 900, stock: null, soldCount: 0, purchaseQuantity: 1, active: true, visibleInStore: true,
+      deletedAt: null, inventoryVisible: true, delivery: 'inventory', stackable: true, usable: false, consumeOnUse: true,
+      purchaseChoices: [
+        { value: 'increase', label: 'Aumenta custo e dano em 20%', description: '' },
+        { value: 'decrease', label: 'Diminui custo e dano em 20%', description: '' },
+      ],
+      action: 'none', actionAmount: 0,
+    };
+    const account = doc({ wallet: 100, bank: 0, orbs: {} });
+    db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(account).mockResolvedValueOnce(account).mockResolvedValueOnce(account);
+    db.EconomyItem.findOne.mockReturnValue(query(item));
+    db.EconomyItem.findOneAndUpdate.mockResolvedValue(item);
+    db.EconomyInventory.findOne.mockReturnValue(query(null));
+    db.EconomyInventory.findOneAndUpdate.mockResolvedValue({ quantity: 1 });
+    db.EconomyTransaction.create.mockResolvedValue([]);
+
+    await expect(buyItem({ guildId: 'g', userId: 'u', itemId: 'crystal-id', purchaseChoice: 'decrease' }))
+      .resolves.toMatchObject({ selectedChoice: { value: 'decrease', label: 'Diminui custo e dano em 20%' } });
+    expect(db.EconomyInventory.findOneAndUpdate.mock.calls[0][1].$setOnInsert.itemSnapshot.selectedChoice)
+      .toMatchObject({ value: 'decrease', label: 'Diminui custo e dano em 20%' });
+    expect(db.EconomyInventory.findOne.mock.calls[0][0].slot).toBe('choice:decrease');
+    expect(db.EconomyTransaction.create.mock.calls[0][0][0].details.purchaseChoice)
+      .toMatchObject({ value: 'decrease', label: 'Diminui custo e dano em 20%' });
+  });
+
+  test('páginas da loja filtram por moeda e incluem todos os itens sem quebrar a última página', async () => {
+    const lastPageItems = [{ sku: 'minerio-tier-3' }, { sku: 'casa' }];
+    const queryBuilder = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(lastPageItems),
+    };
+    db.EconomyItem.countDocuments.mockResolvedValue(23);
+    db.EconomyItem.find.mockReturnValue(queryBuilder);
+
+    await expect(getStorePage('g', 'fragments', { page: 7, pageSize: 3 }))
+      .resolves.toMatchObject({ total: 23, page: 7, pageSize: 3, pages: 8, items: lastPageItems });
+    expect(db.EconomyItem.find).toHaveBeenCalledWith(expect.objectContaining({ guildId: 'g', currency: 'fragments' }));
+    expect(queryBuilder.skip).toHaveBeenCalledWith(21);
+    expect(queryBuilder.limit).toHaveBeenCalledWith(3);
+
+    db.EconomyItem.countDocuments.mockResolvedValue(3);
+    db.EconomyItem.find.mockReturnValue({ ...queryBuilder, lean: jest.fn().mockResolvedValue([{ sku: 'tomo-esquecimento' }, { sku: 'lagrima-larval' }, { sku: 'manual-guerra' }]) });
+    await expect(getStorePage('g', 'orbs', { page: 0, pageSize: 3 }))
+      .resolves.toMatchObject({ total: 3, page: 0, pages: 1 });
+    expect(db.EconomyItem.find).toHaveBeenLastCalledWith(expect.objectContaining({ guildId: 'g', currency: 'orbs' }));
+  });
+
+  test('itens que aguardam confirmação da staff permanecem no inventário após usar', async () => {
+    const entry = {
+      _id: 'pending-row', guildId: 'g', userId: 'u', itemId: 'item-id', sku: 'manual-guerra', quantity: 1,
+      itemSnapshot: { name: 'Manual da Guerra', emoji: '📕', usable: true, consumeOnUse: false, useMessage: 'Dirija-se à staff.', action: 'none', stackable: true },
+    };
+    db.EconomyAccount.findOneAndUpdate.mockResolvedValue(doc({ wallet: 0, bank: 0 }));
+    db.EconomyInventory.findOne.mockReturnValue(query(entry));
+    db.EconomyTransaction.create.mockResolvedValue([]);
+
+    await expect(useInventoryItem({ guildId: 'g', userId: 'u', sku: 'manual-guerra' }))
+      .resolves.toMatchObject({ consumed: false, item: { useMessage: 'Dirija-se à staff.' } });
+    expect(db.EconomyInventory.deleteOne).not.toHaveBeenCalled();
+    expect(db.EconomyInventory.updateOne).not.toHaveBeenCalled();
+    expect(db.EconomyTransaction.create.mock.calls[0][0][0].details.consumed).toBe(false);
+  });
+
+  test.each([
+    ['tomo-esquecimento', 'Você utilizou o Tomo do Esquecimento! Para realizar o reset de suas classes, dirija-se à staff do servidor.'],
+    ['lagrima-larval', 'Você utilizou a Lágrima Larval! Para realizar a redistribuição dos seus atributos, dirija-se à staff do servidor.'],
+    ['manual-guerra', 'Você utilizou o Manual da Guerra! Para realizar sua evolução de classe, certifique-se de cumprir os requisitos necessários e dirija-se à staff do servidor.'],
+  ])('%s mantém uma cópia no inventário e não altera saldos ao solicitar a staff', async (sku, useMessage) => {
+    const entry = {
+      _id: 'staff-request-row', guildId: 'g', userId: 'u', itemId: 'item-id', sku, quantity: 1,
+      itemSnapshot: { name: sku, emoji: '📖', usable: true, consumeOnUse: false, useMessage, action: 'none', actionAmount: 0, stackable: true },
+    };
+    db.EconomyAccount.findOneAndUpdate.mockResolvedValue(doc({ wallet: 0, bank: 0, orbs: { orange: 10, red: 0 } }));
+    db.EconomyInventory.findOne.mockReturnValue(query(entry));
+    db.EconomyTransaction.create.mockResolvedValue([]);
+
+    await expect(useInventoryItem({ guildId: 'g', userId: 'u', sku }))
+      .resolves.toMatchObject({ consumed: false, item: { useMessage } });
+    expect(db.EconomyInventory.deleteOne).not.toHaveBeenCalled();
+    expect(db.EconomyInventory.updateOne).not.toHaveBeenCalled();
+    expect(db.EconomyAccount.findOneAndUpdate.mock.calls.every(([, update]) => Boolean(update.$setOnInsert))).toBe(true);
+    expect(db.EconomyTransaction.create.mock.calls[0][0][0]).toMatchObject({
+      operation: 'item_use', itemSku: sku, walletDelta: 0, orbDelta: null,
+      details: { consumed: false, action: 'none', actionAmount: 0 },
+    });
+  });
+
+  test('itens com escolhas exigem uma opção válida antes de debitar moedas', async () => {
+    const item = {
+      _id: 'ore-id', guildId: 'g', sku: 'minerio-tier-1', name: 'Minério Tier 1', currency: 'fragments', price: 10000,
+      stock: null, purchaseQuantity: 1, active: true, visibleInStore: true, deletedAt: null,
+      purchaseChoices: [{ value: 'oricalco', label: '1kg de Oricalco' }],
+    };
+    db.EconomyAccount.findOneAndUpdate.mockResolvedValue(doc({ wallet: 20000, bank: 0 }));
+    db.EconomyItem.findOne.mockReturnValue(query(item));
+
+    await expect(buyItem({ guildId: 'g', userId: 'u', itemId: 'ore-id' }))
+      .rejects.toMatchObject({ publicMessage: expect.stringMatching(/Escolha uma das opções/) });
+    expect(db.EconomyItem.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(db.EconomyInventory.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(db.EconomyAccount.findOneAndUpdate).toHaveBeenCalledTimes(1);
   });
 });
