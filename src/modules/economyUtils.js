@@ -1,14 +1,15 @@
 const ORB_TYPES = ['green', 'blue', 'orange', 'red', 'black', 'gold'];
 const ORBS = {
-  green: { label: 'Verde', emoji: '🟢' },
-  blue: { label: 'Azul', emoji: '🔵' },
-  orange: { label: 'Laranja', emoji: '🟠' },
-  red: { label: 'Vermelha', emoji: '🔴' },
-  black: { label: 'Preta', emoji: '⚫' },
-  gold: { label: 'Dourada', emoji: '🟡' },
+  green: { label: 'Verde', emoji: '🟢', sigil: '✦' },
+  blue: { label: 'Azul', emoji: '🔵', sigil: '❖' },
+  orange: { label: 'Laranja', emoji: '🟠', sigil: '✺' },
+  red: { label: 'Vermelha', emoji: '🔴', sigil: '✹' },
+  black: { label: 'Preta', emoji: '⚫', sigil: '◈' },
+  gold: { label: 'Dourada', emoji: '🟡', sigil: '✧' },
 };
 const FRAGMENT_EMOJI = '<:fragmento:1568121720857170000>';
 const MAX_AMOUNT = 1000000000000;
+const DEFAULT_TIME_ZONE = 'America/Sao_Paulo';
 
 class EconomyError extends Error {
   constructor(message, details = {}) {
@@ -26,12 +27,13 @@ function assertAmount(value, label = 'Quantidade', { min = 1, max = MAX_AMOUNT }
   return value;
 }
 
-function orbConversion(source, amount) {
+function orbConversion(source, amount, conversionRate = 10) {
   const index = ORB_TYPES.indexOf(source);
   if (index < 0 || index >= ORB_TYPES.length - 1) throw new RangeError('Selecione uma categoria de Orbe que possa ser convertida para a próxima.');
   assertAmount(amount, 'Quantidade de Orbes');
-  if (amount % 10 !== 0) throw new RangeError('A quantidade precisa ser múltipla de 10.');
-  return { source, destination: ORB_TYPES[index + 1], amount, result: amount / 10 };
+  assertAmount(conversionRate, 'Taxa de conversão', { min: 2, max: 1000000 });
+  if (amount % conversionRate !== 0) throw new RangeError('A quantidade precisa ser múltipla de ' + conversionRate + '.');
+  return { source, destination: ORB_TYPES[index + 1], amount, result: amount / conversionRate, conversionRate };
 }
 
 function remainingMs(lastAt, cooldownMs, now = Date.now()) {
@@ -89,7 +91,57 @@ function formatFragments(value) {
   return formatted + ' ' + FRAGMENT_EMOJI;
 }
 
+function zonedDateParts(value, timeZone = DEFAULT_TIME_ZONE) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date(value));
+  return Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+}
+
+function zonedMidnightUtc(year, month, day, timeZone = DEFAULT_TIME_ZONE) {
+  const targetWallTime = Date.UTC(year, month - 1, day, 0, 0, 0);
+  let guess = targetWallTime;
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  });
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const parts = Object.fromEntries(formatter.formatToParts(new Date(guess))
+      .filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+    const representedWallTime = Date.UTC(
+      Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+      Number(parts.hour), Number(parts.minute), Number(parts.second),
+    );
+    const correction = representedWallTime - targetWallTime;
+    if (correction === 0) break;
+    guess -= correction;
+  }
+  return new Date(guess);
+}
+
+function dailyCycle(now = new Date(), timeZone = DEFAULT_TIME_ZONE) {
+  const date = new Date(now);
+  const parts = zonedDateParts(date, timeZone);
+  const year = Number(parts.year);
+  const month = Number(parts.month);
+  const day = Number(parts.day);
+  const nextCalendarDate = new Date(Date.UTC(year, month - 1, day + 1));
+  const resetAt = zonedMidnightUtc(year, month, day, timeZone);
+  const dayKey = [parts.year, parts.month, parts.day].join('-');
+  return {
+    dayKey,
+    resetAt,
+    nextResetAt: zonedMidnightUtc(
+      nextCalendarDate.getUTCFullYear(),
+      nextCalendarDate.getUTCMonth() + 1,
+      nextCalendarDate.getUTCDate(),
+      timeZone,
+    ),
+  };
+}
+
 module.exports = {
   ORB_TYPES, ORBS, FRAGMENT_EMOJI, MAX_AMOUNT, EconomyError, assertAmount, orbConversion,
   remainingMs, formatDuration, periodKey, isCalendarDue, formatFragments,
+  DEFAULT_TIME_ZONE, zonedDateParts, zonedMidnightUtc, dailyCycle,
 };

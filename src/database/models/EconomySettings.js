@@ -31,6 +31,24 @@ const economySettingsSchema = new mongoose.Schema({
     rangesConfigured: { type: Boolean, default: false },
     cooldownMs: { type: Number, default: 86400000, min: 60000, validate: (value) => value == null || Number.isSafeInteger(value) },
   },
+  orbs: {
+    conversionRate: { type: Number, default: 10, min: 2, max: 1000000, validate: (value) => value == null || Number.isSafeInteger(value) },
+  },
+  casino: {
+    maxBet: { type: Number, default: 1000000000, min: 1, max: 1000000000, validate: (value) => value == null || Number.isSafeInteger(value) },
+    flip: {
+      enabled: { type: Boolean, default: true },
+      multiplier: { type: Number, default: 2, min: 2, max: 100, validate: (value) => value == null || Number.isSafeInteger(value) },
+    },
+    dice: {
+      enabled: { type: Boolean, default: true },
+      multiplier: { type: Number, default: 2, min: 2, max: 100, validate: (value) => value == null || Number.isSafeInteger(value) },
+    },
+    slots: {
+      enabled: { type: Boolean, default: true },
+      multiplier: { type: Number, default: 5, min: 2, max: 100, validate: (value) => value == null || Number.isSafeInteger(value) },
+    },
+  },
 }, { timestamps: true, versionKey: false });
 
 module.exports = mongoose.model('EconomySettings', economySettingsSchema);

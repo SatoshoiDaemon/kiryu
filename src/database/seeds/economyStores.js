@@ -1,5 +1,4 @@
 const EconomyItem = require('../models/EconomyItem');
-const EconomyInventory = require('../models/EconomyInventory');
 
 const SEED_ACTOR = 'system:store-seed-v1';
 
@@ -190,8 +189,9 @@ const products = [
 async function upsertProduct(guildId, product) {
   const filter = { guildId, sku: product.sku };
   const update = {
-    $set: { ...product, guildId, updatedBy: SEED_ACTOR },
-    $setOnInsert: { createdBy: SEED_ACTOR },
+    // Seed values initialize new rows only. Staff edits and member inventory
+    // snapshots must survive restarts unchanged.
+    $setOnInsert: { ...product, guildId, createdBy: SEED_ACTOR },
   };
   const options = { upsert: true, returnDocument: 'after', runValidators: true, setDefaultsOnInsert: true };
   try {
@@ -203,29 +203,9 @@ async function upsertProduct(guildId, product) {
   }
 }
 
-async function refreshPendingStaffItems(guildId) {
-  const staffItems = products.filter((product) => ['tomo-esquecimento', 'lagrima-larval', 'manual-guerra'].includes(product.sku));
-  await Promise.all(staffItems.map((item) => EconomyInventory.updateMany(
-    { guildId, sku: item.sku },
-    { $set: {
-      'itemSnapshot.name': item.name,
-      'itemSnapshot.emoji': item.emoji,
-      'itemSnapshot.description': item.description,
-      'itemSnapshot.usable': true,
-      'itemSnapshot.consumeOnUse': false,
-      'itemSnapshot.useMessage': item.useMessage,
-      'itemSnapshot.effectDescription': item.effectDescription,
-      'itemSnapshot.inventoryVisible': true,
-      'itemSnapshot.action': 'none',
-      'itemSnapshot.actionAmount': 0,
-    } },
-  )));
-}
-
 async function seedEconomyStores(guildId) {
   if (!guildId) throw new TypeError('É necessário informar o ID do servidor para cadastrar as lojas.');
   for (const product of products) await upsertProduct(guildId, product);
-  await refreshPendingStaffItems(guildId);
   return {
     fragments: products.filter((product) => product.currency === 'fragments').length,
     orbs: products.filter((product) => product.currency === 'orbs').length,

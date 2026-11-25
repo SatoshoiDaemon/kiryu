@@ -16,6 +16,7 @@ const economyInventorySchema = new mongoose.Schema({
   itemSnapshot: {
     name: { type: String, required: true },
     emoji: { type: String, default: '📦' },
+    thumbnailUrl: { type: String, default: '' },
     description: { type: String, default: '' },
     usable: { type: Boolean, default: false },
     consumeOnUse: { type: Boolean, default: true },
@@ -32,5 +33,6 @@ const economyInventorySchema = new mongoose.Schema({
 
 economyInventorySchema.index({ guildId: 1, userId: 1, itemId: 1, slot: 1 }, { unique: true });
 economyInventorySchema.index({ guildId: 1, userId: 1, updatedAt: -1 });
+economyInventorySchema.index({ guildId: 1, userId: 1, 'itemSnapshot.usable': 1, updatedAt: -1 });
 
 module.exports = mongoose.model('EconomyInventory', economyInventorySchema);

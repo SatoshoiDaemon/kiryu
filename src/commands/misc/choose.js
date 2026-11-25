@@ -6,7 +6,7 @@ const { replyV2, replyMessageV2 } = require('../../modules/components');
 const data = new SlashCommandBuilder()
   .setName('choose')
   .setDescription('Escolhe uma opção aleatoriamente')
-  .addStringOption((option) => option.setName('opcoes').setDescription('Opções separadas por vírgula').setRequired(true).setMaxLength(1800));
+  .addStringOption((option) => option.setName('options').setDescription('Opções separadas por vírgula').setRequired(true).setMaxLength(1800));
 
 function pick(input) {
   return chooseOption(input, () => randomInt(0, 1000000) / 1000000).choice;
@@ -14,7 +14,7 @@ function pick(input) {
 
 async function execute(interaction) {
   try {
-    await replyV2(interaction, '🎲 Minha escolha: **' + pick(interaction.options.getString('opcoes')) + '**');
+    await replyV2(interaction, '🎲 Minha escolha: **' + pick(interaction.options.getString('options')) + '**');
   } catch (error) {
     await replyV2(interaction, error.message);
   }

@@ -17,8 +17,12 @@ const economyAccountSchema = new mongoose.Schema({
   orbs: { type: orbSchema, default: () => ({}) },
   lastWorkAt: { type: Date, default: null },
   lastDailyAt: { type: Date, default: null },
+  // Calendar key is additive; lastDailyAt is retained for old records/history.
+  dailyClaimDay: { type: String, default: null, maxlength: 10 },
 }, { timestamps: true, versionKey: false });
 
 economyAccountSchema.index({ guildId: 1, userId: 1 }, { unique: true });
+economyAccountSchema.index({ guildId: 1, wallet: -1 });
+economyAccountSchema.index({ guildId: 1, bank: -1 });
 
 module.exports = mongoose.model('EconomyAccount', economyAccountSchema);

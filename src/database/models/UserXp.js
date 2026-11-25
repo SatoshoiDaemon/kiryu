@@ -8,5 +8,6 @@ const userXpSchema = new mongoose.Schema({
 }, { timestamps: true, versionKey: false });
 
 userXpSchema.index({ guildId: 1, userId: 1 }, { unique: true });
+userXpSchema.index({ guildId: 1, level: -1, xp: -1 });
 
 module.exports = mongoose.model('UserXp', userXpSchema);

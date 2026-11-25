@@ -1,18 +1,20 @@
-const { requiredXP, progressBar } = require('./xp');
-const { createContainer } = require('./components');
+const { requiredXP } = require('./xp');
+const { createContainer, resourceSection } = require('./components');
+const config = require('../config');
 
 function levelContainer(user, profile) {
   const required = requiredXP(profile.level);
   const percent = Math.min(100, Math.floor((profile.xp / required) * 100));
   const content = [
-    '## Perfil de experiência',
-    '**Usuário:** ' + user,
-    '**Nível:** ' + profile.level,
-    '**XP neste nível:** ' + profile.xp + ' / ' + required,
-    '**Progresso:** ' + progressBar(profile.xp, profile.level) + ' ' + percent + '%',
-    '**Próximo nível:** faltam ' + Math.max(0, required - profile.xp) + ' XP',
+    '# Jornada no Eternity',
+    'O seu nível continua ligado diretamente à progressão do Eternity Realms.',
+    '**Membro:** ' + user,
+    '**Progresso:** ' + percent + '% · faltam ' + Math.max(0, required - profile.xp).toLocaleString('pt-BR') + ' XP para o próximo nível',
   ].join('\n');
-  return createContainer(content);
+  return createContainer(content, [], config.visual.xp, { sections: [
+    resourceSection('Nível atual', profile.level.toLocaleString('pt-BR'), '✧', 'xp'),
+    resourceSection('XP neste nível', profile.xp.toLocaleString('pt-BR') + ' / ' + required.toLocaleString('pt-BR'), '✦', 'xp'),
+  ] });
 }
 
 module.exports = { levelContainer };

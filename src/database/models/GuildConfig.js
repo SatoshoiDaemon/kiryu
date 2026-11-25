@@ -27,6 +27,13 @@ const guildConfigSchema = new mongoose.Schema({
   },
   buffs: { type: [buffSchema], default: [] },
   stackBuffs: { type: Boolean, default: false },
+  levelUp: {
+    enabled: { type: Boolean, default: true },
+    message: { type: String, default: '', maxlength: 1800 },
+  },
+  appearance: {
+    palette: { type: String, enum: ['kiryu', 'eclipse', 'jade', 'ember'], default: 'kiryu' },
+  },
   adminRoleIds: { type: [String], default: [] },
   triggers: { type: [triggerSchema], default: [] },
 }, { timestamps: true, versionKey: false });

@@ -1,73 +1,83 @@
-# Kiryu
+# Kiryu — Eternity Realms
 
-Bot do servidor Eternity Realms com XP, níveis, economia, inventário, lojas, comandos utilitários, gatilhos personalizados e painel administrativo.
+Bot comunitário do Eternity Realms: progressão de XP, Fragmentos, Orbes, lojas, inventário, recompensas por cargo, cassino virtual, perfis ilustrados, rankings e painel administrativo. Interfaces interativas usam Discord Components V2; cartões de perfil são PNG renderizados pelo próprio bot.
 
-## Requisitos
+## Executar localmente
 
-- Node.js 20.19 ou superior
-- MongoDB; `/trabalhar`, `/daily` e operações de saldo funcionam também em servidor standalone
-- Aplicação Discord com os intents Guild Members, Message Content e Guild Voice States habilitados no Developer Portal
-- Certificados MongoDB locais em certs/ (a pasta não é versionada)
+- Node.js 20.19 ou superior.
+- MongoDB e aplicação Discord com intents Guild Members, Message Content e Guild Voice States.
+- Execute `npm ci`, copie `.env.example` para `.env`, preencha as credenciais, rode `npm run db:setup` e depois `npm start`.
 
-## Configuração local
+O banco padrão chama-se `kiryu`. A atualização de schemas é aditiva: XP e níveis, carteiras, banco, seis saldos de Orbe, inventários, catálogo e históricos existentes permanecem nos mesmos registros. O seed cria somente SKUs ausentes e não redefine preços, estoques nem snapshots comprados. O fator de conversão inicial segue em 10:1 até ser alterado no painel.
 
-1. Instale as dependências com npm ci.
-2. Copie .env.example para .env e preencha DISCORD_TOKEN, CLIENT_ID, SERVER_ID e MONGODB_URI.
-3. Coloque os três certificados recebidos em certs/, ou configure os caminhos MONGODB_*_FILE no .env.
-4. Inicialize o banco e confirme a conexão com npm run db:setup.
-5. Inicie o bot com npm start.
+## Árvore definitiva de comandos
 
-O bot usa o banco kiryu por padrão. Defina MONGODB_DB_NAME para escolher outro nome. A inicialização cria as coleções e índices necessários; novas configurações, contas e perfis são gravados sob demanda.
+Nomes de comandos, grupos, subcomandos e opções são em inglês. Descrições, telas e respostas são em português. As opções `member` aceitam usuários do servidor; operações administrativas verificam o proprietário ou os cargos autorizados.
 
-Ao iniciar o bot ou executar `npm run db:setup`, o catálogo da loja do `SERVER_ID` também é sincronizado por `guildId + sku`: 23 produtos de Fragmentos e 3 produtos de Orbes. O seed pode ser executado novamente; ele atualiza esses produtos sem apagar saldos, transações ou quantidades já adquiridas. Tomo do Esquecimento e Lágrima Larval são mantidos na loja de Orbes.
+### Administração
 
-O arquivo .env existente pode continuar usando o nome antigo DICORD_TOKEN; DISCORD_TOKEN é o nome recomendado para novas instalações.
+- `/config` — painel permanente do proprietário. Reúne progressão, permissões, recompensas, taxa de conversão, regras por cargo, catálogo e respostas automáticas.
+- `/xp add|remove|set member amount`, `/xp reset member` — operações administrativas sobre XP acumulado.
+- `/xp level view [member]` — consulta pública do nível.
+- `/xp level add|remove|set member amount` — operações administrativas sobre nível.
+- `/money add|remove|set member amount [account]` — ajustes administrativos de Fragmentos na carteira ou no banco.
+- `/orbs add|remove|set member category amount` — ajustes administrativos de Orbes.
+- `/inventory add|remove member sku quantity` — entrega e remoção pontual de itens pela equipe.
 
-## Comandos
+### Economia e recompensas
 
-- Slash: /level, /choose, /roll, /coinflip, /config, /addxp, /removexp, /addlevel, /removelevel
-- Economia: /trabalhar, /daily, /coletar, /carteira, /banco depositar, /banco sacar, /orbes
-- Loja e itens: /loja fragmentos, /loja orbes, /inventario, /use
-- Administração da economia: operações de saldo, recompensas, regras de cargo, itens, estoque e histórico ficam nos subcomandos de /economia.
-- Prefixo $: $level, $choose, $roll, $coinflip
-- /config é exclusivo do proprietário 1290969388933054528. Os cargos autorizados nele configurados podem usar os comandos de gerenciamento de XP.
-- Os cargos configurados na seção Permissões de /config também autorizam os subcomandos administrativos de /economia.
+- `/money balance` — carteira e banco próprios.
+- `/money transfer member amount` — transfere Fragmentos para outra pessoa.
+- `/money history [member] [page]` — histórico econômico; consultar outra pessoa exige permissão administrativa.
+- `/money deposit amount` e `/money withdraw amount` — move Fragmentos entre carteira e banco.
+- `/orbs balance` — consulta os seis saldos de Orbe.
+- `/orbs convert` — abre a conversão para a categoria seguinte pela taxa definida em `/config`.
+- `/daily` — recompensa diária por data civil, com virada à meia-noite em `America/Sao_Paulo`.
+- `/work` — recompensa de trabalho com intervalo configurado em `/config`.
+- `/rewards claim` — coleta recompensas recorrentes liberadas pelos cargos.
+- `/shop fragments` e `/shop orbs` — vitrines com detalhe, quantidade, opções, estoque, custo total e confirmação antes da compra.
+- `/inventory view [member]` — inventário próprio ou de outra pessoa, com navegação e detalhes.
+- `/casino flip|dice|slots side bet` — jogos de Fragmentos virtuais.
 
-## Economia
+### Perfil e ferramentas comunitárias
 
-Fragmentos têm saldo separado de carteira e banco. /carteira exibe os saldos e oferece atalhos para inventário, depósito e saque. Orbes são saldos independentes em seis categorias; /orbes permite converter quantidades múltiplas de 10 para a categoria seguinte depois de uma prévia e confirmação. A recompensa diária sorteia cada valor de forma independente: 400–1.000 Fragmentos, 10–100 Orbes verdes, 10–50 azuis e 5–10 laranjas; Orbes vermelhas, pretas e douradas começam em zero. `/economia daily-config` permite alterar cada mínimo e máximo, e configurações diárias antigas recebem essas faixas padrão uma única vez.
+- `/profile [member]` — cartão de perfil; o próprio membro pode editar fundo, moldura, paleta, insígnias, título e biografia.
+- `/ranking board` — quadro de níveis ou patrimônio em Fragmentos.
+- `/choose options` — escolhe entre opções separadas por vírgula.
+- `/coinflip` — lança uma moeda.
+- `/roll expression` — rola dados, por exemplo `1d20` ou `4d20+10`.
 
-As lojas usam Containers e Components V2, têm três itens por página e verificam estoque e datas de disponibilidade no servidor durante cada compra. O histórico registra compras, usos, recompensas, depósitos, saques e ações administrativas. Itens removidos do catálogo continuam nos inventários e nos registros existentes.
+O Discord só admite `/xp level` como um grupo quando há um subcomando abaixo dele; por isso, a consulta aparece como `/xp level view`. `/inventory view` também identifica a consulta em uma árvore válida. A sincronização substitui em lote os comandos do servidor com a árvore carregada, removendo do registro ativo os nomes obsoletos.
 
-Bola de Cristal e Minérios Tier 1 e 2 apresentam suas opções ao iniciar a compra; a escolha fica registrada no inventário e no histórico. Tomo do Esquecimento, Lágrima Larval e Manual da Guerra exibem instruções para procurar a staff e permanecem no inventário após o uso. O uso fica no histórico de transações; a staff conclui o procedimento e pode remover o item pelo subcomando `/economia item-remover`. Nenhum reset ou evolução de personagem é automático. Itens com duração ou contagem de usos no RP também permanecem no inventário; o bot não controla essas cargas/sessões, que ficam a cargo da staff.
+## Configuração
 
-Subcomandos administrativos mais usados:
+`/config` organiza as opções persistentes em seções navegáveis. A equipe administra pelos controles nativos do Discord sempre que o valor é uma escolha fixa; modais são usados para textos, limites numéricos e intervalos personalizados.
 
-- `/economia fragmentos-adicionar`, `fragmentos-remover`, `fragmentos-definir` (escolha carteira ou banco).
-- `/economia orbes-adicionar`, `orbes-remover`, `orbes-definir`.
-- `/economia trabalho-config` e `daily-config` para recompensas e cooldowns.
-- `/economia regra-criar`, `regra-editar`, `regra-excluir` para recompensas de cargos; regras podem acumular ou exigir coleta individual.
-- `/economia item-criar`, `item-editar`, `item-excluir`, `item-estoque`, `item-ativar`, `item-entregar`, `item-remover`.
-- `/economia transacoes` consulta o histórico com filtro de usuário e paginação.
+- **Experiência e níveis:** XP por mensagem/voz, cooldowns, intervalos, canais excluídos, multiplicadores por cargo e empilhamento; anúncio de nível habilitado e texto com `{member}`, `{level}` e `{xp}`.
+- **Permissões:** cargos autorizados às operações administrativas pontuais.
+- **Recompensas:** faixas do daily para Fragmentos e todas as seis categorias de Orbe, valor/intervalo de trabalho, taxa de conversão e recompensas recorrentes por cargo. Regras permitem editar cargo, frequência diária/semanal/mensal, intervalo, calendário, valores e acúmulo.
+- **Cassino:** liga/desliga individual para cada jogo, aposta máxima e pagamento total de cara ou coroa, dados e caça-níquel.
+- **Aparência:** paletas prontas persistidas e aplicadas às interfaces do servidor.
+- **Lojas e itens:** catálogo paginado, nome, descrição, emoji, arte, preço, moeda, estoque, datas, visibilidade, entrega, uso, ação segura, unidades por compra e opções.
+- **Gatilhos:** texto exato, várias respostas, ativação e edição visual.
 
-O Discord não permite que `/loja` abra diretamente uma loja e também tenha subcomandos abaixo dela. Por isso, as duas opções são `/loja fragmentos` e `/loja orbes`. A criação de itens oferece um painel interativo para configurar preço/estoque, disponibilidade, inventário/entrega e ações seguras em etapas.
+Operações individuais de XP, saldo, Orbes e inventário ficam nos comandos administrativos correspondentes; elas não alteram os registros de configuração permanente.
 
-As operações da economia não usam transações entre documentos e funcionam em MongoDB standalone. Saldo e estoque são atualizados atomicamente em seus respectivos documentos; compras compensam o débito ou a reserva de estoque se uma etapa posterior falhar. O histórico é gravado em seguida e não invalida uma operação já concluída se a gravação falhar.
+## Identidade visual e arquivos de demonstração
 
-## Testes
+- Componentes, paletas e selos por sistema: `src/modules/components.js`, `src/config.js` e `assets/systems/`.
+- Divisória local versionada em `assets/kiryu-divider.gif`; `KIRYU_ASSET_BASE_URL` pode apontar para um CDN próprio.
+- Cartões PNG são renderizados em `src/modules/memberProfiles.js`. Previews verificáveis dos builders e uma imagem renderizada ficam em `artifacts/visual-previews/`; regenere com `node scripts/render-visual-previews.js`.
+- Variantes de personalidade contextual ficam em `src/modules/personality.js`.
 
-Execute npm test. A suíte cobre as regras de negócio sem conectar ao Discord ou ao MongoDB.
+## Desempenho e validação
 
-## Deploy na Square Cloud
+`KIRYU_SLOW_OPERATION_MS` define o limite de aviso (padrão 750 ms). O bot agrega latência de acknowledgement/handler e comandos MongoDB em memória e descarrega contagem, média, pico e histograma no log. Isso não equivale a latência end-to-end em produção; este checkout não tem gateway ou MongoDB de produção conectados.
 
-O workflow `.github/workflows/deploy.yml` envia o código ao app `09e5147f116d46eba2ff92ed5a583dd0` e o reinicia a cada push em `main`. Também é possível iniciar o deploy manualmente pela aba **Actions** do GitHub.
+No benchmark local reproduzível (`node scripts/benchmark-local.js`, Node v26.13.1), o renderer PNG teve p50 de 83,183 ms sem cache e p95 de 0,004 ms com cache aquecido; serializar os 15 comandos teve p95 de 0,201 ms. A amostra usou fixture local, sem Discord, rede ou MongoDB. Os resultados completos ficam em `artifacts/visual-previews/performance-local.json`.
 
-O workflow usa o secret `SQUARECLOUD_API_TOKEN` do repositório GitHub (**Settings → Secrets and variables → Actions**). Configure as variáveis do `.env` e os certificados MongoDB diretamente na Square Cloud; não coloque esses valores no workflow ou no repositório.
+Execute `npm test` para a suíte local sem Discord/MongoDB. `artifacts/visual-previews/components-v2-fixtures.json` contém serializações dos builders reais. As telas são verificadas quanto aos limites de componentes, mas a renderização final depende do cliente Discord.
 
-Para o primeiro envio, faça o deploy pelo workflow ou pelo painel da Square Cloud. O `squarecloud.app` e o script `start` já apontam para `src/index.js`.
+## Validação que depende de produção
 
-### Erro MongoServerError
-
-As operações de economia usam atualizações por documento e não exigem replica set.
-Se uma operação falhar, confira o código MongoDB registrado pelo bot; os logs
-ocultam credenciais.
+Este ambiente não tem sessão Discord autenticada nem conexão ao MongoDB do servidor. Portanto, permanecem para a implantação: sincronizar e confirmar a remoção dos comandos antigos no servidor, testar interações com permissões reais, conferir a renderização desktop/mobile e verificar o alcance dos assets/CDN. O workflow Square Cloud existente não foi alterado; erros externos de infraestrutura e deploy devem ser avaliados separadamente de falhas locais de build ou teste.

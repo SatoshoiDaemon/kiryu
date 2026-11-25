@@ -21,6 +21,10 @@ function parseSku(sku) {
 function validateItem(data, { partial = false } = {}) {
   const next = { ...data };
   if (next.sku != null) next.sku = parseSku(next.sku);
+  if (next.thumbnailUrl != null) {
+    next.thumbnailUrl = String(next.thumbnailUrl).trim();
+    if (next.thumbnailUrl && (!/^https:\/\//i.test(next.thumbnailUrl) || next.thumbnailUrl.length > 500)) throw new RangeError('A arte do item precisa usar uma URL HTTPS válida de até 500 caracteres.');
+  }
   if (next.price != null) assertAmount(next.price, 'Preço', { min: 0 });
   if (next.purchaseQuantity != null) assertAmount(next.purchaseQuantity, 'Quantidade por compra', { max: 1000000 });
   if (next.stock != null) assertAmount(next.stock, 'Estoque', { min: 0 });
@@ -64,6 +68,41 @@ async function configureWork({ guildId, actorId, min, max, cooldownMinutes }) {
   return settings;
 }
 
+async function configureOrbConversion({ guildId, actorId, conversionRate }) {
+  assertAmount(conversionRate, 'Taxa de conversão', { min: 2, max: 1000000 });
+  const settings = await getSettings(guildId);
+  if (!settings.orbs) settings.orbs = { conversionRate: 10 };
+  settings.orbs.conversionRate = conversionRate;
+  await settings.save();
+  await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_orb_conversion_config', currency: 'none', details: { conversionRate } });
+  return settings;
+}
+
+async function configureCasino({ guildId, actorId, changes }) {
+  const games = ['flip', 'dice', 'slots'];
+  const patch = {};
+  if (changes.maxBet !== undefined) patch.maxBet = assertAmount(changes.maxBet, 'Aposta máxima', { min: 1, max: 1000000000 });
+  for (const game of games) {
+    if (!changes[game]) continue;
+    patch[game] = {};
+    if (changes[game].enabled !== undefined) patch[game].enabled = Boolean(changes[game].enabled);
+    if (changes[game].multiplier !== undefined) patch[game].multiplier = assertAmount(changes[game].multiplier, 'Multiplicador de pagamento', { min: 2, max: 100 });
+  }
+  if (!Object.keys(patch).length) throw new RangeError('Informe uma configuração de cassino para alterar.');
+  const settings = await getSettings(guildId);
+  if (!settings.casino) settings.casino = {};
+  for (const [game, multiplier] of Object.entries({ flip: 2, dice: 2, slots: 5 })) {
+    if (!settings.casino[game]) settings.casino[game] = { enabled: true, multiplier };
+  }
+  for (const [key, value] of Object.entries(patch)) {
+    if (key === 'maxBet') settings.casino.maxBet = value;
+    else Object.assign(settings.casino[key], value);
+  }
+  await settings.save();
+  await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_casino_config', currency: 'none', details: patch });
+  return settings;
+}
+
 function validateRewardRange(range, label) {
   if (!range) throw new RangeError('Informe os limites de ' + label + '.');
   assertAmount(range.min, label + ' mínimo', { min: 0, max: MAX_AMOUNT });
@@ -72,20 +111,18 @@ function validateRewardRange(range, label) {
   return { min: range.min, max: range.max };
 }
 
-async function configureDaily({ guildId, actorId, fragmentRange, cooldownHours, orbRanges = {} }) {
+async function configureDaily({ guildId, actorId, fragmentRange, orbRanges = {} }) {
   const fragments = validateRewardRange(fragmentRange, 'Fragmentos diários');
-  assertAmount(cooldownHours, 'Cooldown em horas', { min: 1, max: 8760 });
   const orbs = Object.fromEntries(ORB_TYPES.map((type) => [
     type,
     validateRewardRange(orbRanges[type] || { min: 0, max: 0 }, 'Orbes ' + type),
   ]));
   const settings = await getSettings(guildId);
   settings.daily.rewardRanges.fragments = fragments;
-  settings.daily.cooldownMs = cooldownHours * 3600000;
   for (const type of ORB_TYPES) settings.daily.rewardRanges.orbs[type] = orbs[type];
   settings.daily.rangesConfigured = true;
   await settings.save();
-  await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_daily_config', currency: 'mixed', amount: fragments.min, details: { cooldownHours, fragments, orbs } });
+  await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_daily_config', currency: 'mixed', amount: fragments.min, details: { fragments, orbs } });
   return settings;
 }
 
@@ -206,6 +243,6 @@ async function setCatalogStock({ guildId, actorId, sku, stock }) {
 }
 
 module.exports = {
-  parseSku, validateItem, configureWork, configureDaily, normalizeRule, createCollectRule,
+  parseSku, validateItem, configureWork, configureDaily, configureOrbConversion, configureCasino, normalizeRule, createCollectRule,
   editCollectRule, removeCollectRule, createCatalogItem, editCatalogItem, setCatalogStock,
 };

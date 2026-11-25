@@ -10,8 +10,18 @@ const cooldowns = createCooldownTracker();
 async function execute(message, client) {
   if (!message.guild || message.guildId !== client.config.guildId || message.author.bot) return;
 
+  let guildConfig;
   try {
-    await awardMessageXp(message.guildId, message.author.id, message.member, message.channelId, cooldowns);
+    guildConfig = await getGuildConfig(message.guildId);
+    const result = await awardMessageXp(message.guildId, message.author.id, message.member, message.channelId, cooldowns, Date.now(), { guildConfig });
+    if (result?.levelsGained > 0 && result.levelUp?.enabled !== false) {
+      const { say } = require('../modules/personality');
+      const levelUpMessage = String(result.levelUp?.message || say('levelUp'))
+        .replaceAll('{member}', message.author.toString())
+        .replaceAll('{level}', result.level.toLocaleString('pt-BR'))
+        .replaceAll('{xp}', result.xp.toLocaleString('pt-BR'));
+      await replyMessageV2(message, '# Um novo nível no Eternity\n' + levelUpMessage + '\n\n**Nível:** ' + result.level.toLocaleString('pt-BR') + '\n**XP neste nível:** ' + result.xp.toLocaleString('pt-BR'));
+    }
   } catch {
     logger.warn('Falha ao conceder XP por mensagem; a mensagem foi processada normalmente.');
   }
@@ -19,7 +29,7 @@ async function execute(message, client) {
   await handlePrefixMessage(message, client);
 
   try {
-    const cfg = await getGuildConfig(message.guildId);
+    const cfg = guildConfig || await getGuildConfig(message.guildId);
     const trigger = findTrigger(cfg.triggers, message.content);
     const response = chooseResponse(trigger);
     if (response) await replyMessageV2(message, response);

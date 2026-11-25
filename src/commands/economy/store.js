@@ -3,14 +3,14 @@ const { showStore } = require('../../modules/economyInteractions');
 const config = require('../../config');
 
 const data = new SlashCommandBuilder()
-  .setName('loja')
-  .setDescription('Abra a loja de Fragmentos ou de Orbes.')
-  .addSubcommand((subcommand) => subcommand.setName('fragmentos').setDescription('Abra a loja de Fragmentos'))
-  .addSubcommand((subcommand) => subcommand.setName('orbes').setDescription('Abra a loja de Orbes'));
+  .setName('shop')
+  .setDescription('Explore as vitrines de Fragmentos e Orbes.')
+  .addSubcommand((subcommand) => subcommand.setName('fragments').setDescription('Abra a vitrine de Fragmentos'))
+  .addSubcommand((subcommand) => subcommand.setName('orbs').setDescription('Abra a vitrine de Orbes'));
 
 async function execute(interaction) {
   if (interaction.guildId !== config.guildId) return;
-  const currency = interaction.options.getSubcommand() === 'orbes' ? 'orbs' : 'fragments';
+  const currency = interaction.options.getSubcommand() === 'orbs' ? 'orbs' : 'fragments';
   await showStore(interaction, currency);
 }
 

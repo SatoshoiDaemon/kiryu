@@ -54,6 +54,22 @@ function removeLevels(profile, count) {
   return { level, xp: Math.min(state.xp, requiredXP(level) - 1), levelsLost: levels };
 }
 
+function setTotalXp(profile, totalXp) {
+  const target = Math.max(0, Math.floor(Number(totalXp) || 0));
+  if (!Number.isSafeInteger(target)) throw new RangeError('O XP acumulado excede o limite seguro.');
+  let level = Math.max(0, Math.floor((Math.sqrt(1 + target / 12.5) - 1) / 2));
+  while (50 * level * (level + 1) > target) level -= 1;
+  while (50 * (level + 1) * (level + 2) <= target) level += 1;
+  return { level, xp: target - 50 * level * (level + 1), totalXp: target };
+}
+
+function setLevel(profile, targetLevel) {
+  const state = normalizeProfile(profile);
+  const level = Math.max(0, Math.floor(Number(targetLevel) || 0));
+  if (!Number.isSafeInteger(level)) throw new RangeError('O nível deve ser um inteiro seguro.');
+  return { level, xp: Math.min(state.xp, requiredXP(level) - 1), levelsChanged: level - state.level };
+}
+
 function progressBar(xp, level, width = 16) {
   const required = requiredXP(level);
   const progress = Math.min(1, Math.max(0, xp / required));
@@ -61,4 +77,4 @@ function progressBar(xp, level, width = 16) {
   return '█'.repeat(filled) + '░'.repeat(width - filled);
 }
 
-module.exports = { requiredXP, normalizeProfile, addXp, removeXp, addLevels, removeLevels, progressBar };
+module.exports = { requiredXP, normalizeProfile, addXp, removeXp, addLevels, removeLevels, setTotalXp, setLevel, progressBar };

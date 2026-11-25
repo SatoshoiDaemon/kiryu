@@ -2,6 +2,8 @@ jest.mock('../src/modules/xpService', () => ({
   getGuildConfig: jest.fn(),
 }));
 
+jest.mock('../src/config', () => ({ ownerId: 'owner', guildId: 'guild' }));
+
 const { getGuildConfig } = require('../src/modules/xpService');
 const { isAuthorized } = require('../src/modules/permissions');
 const config = require('../src/config');

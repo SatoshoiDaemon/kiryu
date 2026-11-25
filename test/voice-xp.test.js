@@ -26,13 +26,15 @@ describe('XP por voz', () => {
   });
 
   test('inicia a contagem ao detectar usuários conectados e concede XP após o intervalo', async () => {
+    const guildConfig = { voiceXp: { min: 20, max: 100, intervalMs: 300000, excludedChannelIds: [] } };
+    getGuildConfig.mockResolvedValue(guildConfig);
     const member = { id: 'user-a', user: { bot: false }, voice: { channelId: 'voice-a' } };
     const client = makeClient([{ member, channelId: 'voice-a' }]);
     await sweep(client);
     expect(awardVoiceXp).not.toHaveBeenCalled();
     const startedAt = trackedMembers.get(config.guildId + ':user-a').lastAwardAt;
     await sweep(client, startedAt + 300000);
-    expect(awardVoiceXp).toHaveBeenCalledWith(config.guildId, 'user-a', member);
+    expect(awardVoiceXp).toHaveBeenCalledWith(config.guildId, 'user-a', member, { guildConfig });
   });
 
   test('não concede XP a bots, desconectados ou em canais excluídos', async () => {

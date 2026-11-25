@@ -1,10 +1,10 @@
 const { MessageFlags } = require('discord.js');
 const {
-  basicContainer, collectContainer, inventoryContainer, orbsContainer, payload, respond, storeContainer, walletContainer,
+  basicContainer, collectContainer, inventoryContainer, orbsContainer, payload, respond, storeContainer, storeItemContainer, walletContainer,
 } = require('../src/modules/economyViews');
 
 jest.mock('../src/modules/configPanel', () => ({ handleConfigInteraction: jest.fn() }));
-jest.mock('../src/modules/components', () => ({ replyV2: jest.fn() }));
+jest.mock('../src/modules/components', () => ({ ...jest.requireActual('../src/modules/components'), replyV2: jest.fn(), decorateContainer: (container) => container }));
 
 const { handleInteraction } = require('../src/handlers/commandHandler');
 
@@ -64,14 +64,15 @@ describe('respostas de Components V2', () => {
   test('adia o comando sem tentar definir Components V2 antes do primeiro conteúdo', async () => {
     const execute = jest.fn();
     const interaction = {
-      commandName: 'orbes',
+      commandName: 'orbs',
       isChatInputCommand: () => true,
       deferReply: jest.fn(),
     };
 
-    await handleInteraction(interaction, { commands: new Map([['orbes', { execute, deferEphemeral: true }]]) });
+    const deferReply = interaction.deferReply;
+    await handleInteraction(interaction, { commands: new Map([['orbs', { execute, deferEphemeral: true }]]) });
 
-    expect(interaction.deferReply).toHaveBeenCalledWith({ flags: MessageFlags.Ephemeral });
+    expect(deferReply).toHaveBeenCalledWith({ flags: MessageFlags.Ephemeral });
     expect(execute).toHaveBeenCalledWith(interaction, expect.any(Object));
   });
 
@@ -96,21 +97,28 @@ describe('respostas de Components V2', () => {
 
     expectValidV2Components(storeContainer(storeItems, 'fragments', 0, 1));
     expectValidV2Components(storeContainer([], 'orbs', 0, 1));
-    expectValidV2Components(inventoryContainer({ items: inventoryItems, total: 2, pages: 1 }, 'user', 'user'));
+    const inventory = inventoryContainer({ items: inventoryItems, total: 2, pages: 1 }, 'user', 'user');
+    expectValidV2Components(inventory);
+    expect(require('../src/modules/components').footerText()).toContain('Developer by Krieg.js');
   });
 
-  test('loja mostra as alternativas de compra para produtos com escolha', () => {
-    const component = storeContainer([{
+  test('a vitrine é compacta e os detalhes mostram opções, quantidade e custo final', () => {
+    const item = {
       _id: 'crystal', name: 'Bola de Cristal', description: 'Escolha seu modelo:', price: 900, purchaseQuantity: 1,
       purchaseChoices: [
         { value: 'increase', label: '1. Aumenta o custo e o dano em 20%.' },
         { value: 'decrease', label: '2. Diminui o custo e o dano em 20%.' },
       ],
       currency: 'fragments', stock: null, availableFrom: null, availableUntil: null,
-    }], 'fragments', 0, 1);
+    };
+    const list = storeContainer([item], 'fragments', 0, 1, new Date(), 'member');
+    expect(JSON.stringify(list.toJSON())).not.toContain('Aumenta o custo');
+    const component = storeItemContainer(item, 'fragments', 0, 'member', 2, item.purchaseChoices[0]);
     const rendered = JSON.stringify(component.toJSON());
     expect(rendered).toContain('1. Aumenta o custo e o dano em 20%.');
     expect(rendered).toContain('2. Diminui o custo e o dano em 20%.');
+    expect(rendered).toContain('1.800');
+    expect(rendered).toContain('econ:store:confirm:member:crystal:fragments:0:2:0');
     expectValidV2Components(component);
   });
 

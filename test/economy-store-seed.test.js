@@ -111,12 +111,8 @@ describe('seed das lojas da economia', () => {
     ]);
   });
 
-  test('atualiza apenas snapshots dos três itens pendentes sem alterar quantidade ou usuário', async () => {
+  test('não reescreve snapshots do inventário ao reiniciar', async () => {
     await seedEconomyStores('guild-1');
-    expect(EconomyInventory.updateMany).toHaveBeenCalledTimes(3);
-    expect(EconomyInventory.updateMany).toHaveBeenCalledWith(
-      { guildId: 'guild-1', sku: 'tomo-esquecimento' },
-      { $set: expect.objectContaining({ 'itemSnapshot.consumeOnUse': false, 'itemSnapshot.usable': true }) },
-    );
+    expect(EconomyInventory.updateMany).not.toHaveBeenCalled();
   });
 });

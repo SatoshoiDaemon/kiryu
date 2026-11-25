@@ -5,7 +5,7 @@ const {
   EconomyCollectRule, EconomyClaim,
 } = require('../database');
 const {
-  ORB_TYPES, EconomyError, assertAmount, orbConversion, remainingMs, formatDuration, periodKey, isCalendarDue,
+  ORB_TYPES, EconomyError, assertAmount, orbConversion, remainingMs, formatDuration, periodKey, isCalendarDue, dailyCycle,
 } = require('./economyUtils');
 
 const logger = require('../logger');
@@ -144,8 +144,78 @@ async function bankTransfer({ guildId, userId, amount, direction }) {
   return account.toObject ? account.toObject() : account;
 }
 
+async function transferFragments({ guildId, senderId, recipientId, amount }) {
+  assertAmount(amount, 'Quantidade');
+  if (!recipientId || senderId === recipientId) throw new EconomyError('Escolha outra pessoa para receber os Fragmentos.');
+  await Promise.all([ensureAccount(guildId, senderId), ensureAccount(guildId, recipientId)]);
+  const sender = await EconomyAccount.findOneAndUpdate(
+    { guildId, userId: senderId, wallet: { $gte: amount } },
+    { $inc: { wallet: -amount } },
+    { returnDocument: 'after' },
+  );
+  if (!sender) throw new EconomyError('Sua carteira não tem Fragmentos suficientes para esse envio.');
+  const recipient = await EconomyAccount.findOneAndUpdate(
+    { guildId, userId: recipientId, wallet: { $lte: MAX_BALANCE - amount } },
+    { $inc: { wallet: amount } },
+    { returnDocument: 'after' },
+  );
+  if (!recipient) {
+    const refunded = await EconomyAccount.findOneAndUpdate(
+      { guildId, userId: senderId, wallet: { $lte: MAX_BALANCE - amount } },
+      { $inc: { wallet: amount } },
+      { returnDocument: 'after' },
+    );
+    if (!refunded) logger.error('Transferência interrompida e estorno pendente para ' + senderId + ' em ' + guildId + '.');
+    throw new EconomyError(refunded ? 'A outra carteira atingiu o limite. Nenhum Fragmento foi enviado.' : 'A transferência precisa de revisão da equipe; guarde este aviso e chame a staff.');
+  }
+  await auditAfterAccountUpdate({ guildId, actorId: senderId, userId: senderId, operation: 'member_transfer_out', currency: 'fragments', amount, walletDelta: -amount, details: { recipientId } });
+  await auditAfterAccountUpdate({ guildId, actorId: senderId, userId: recipientId, operation: 'member_transfer_in', currency: 'fragments', amount, walletDelta: amount, details: { senderId } });
+  return { sender: sender.toObject ? sender.toObject() : sender, recipient: recipient.toObject ? recipient.toObject() : recipient };
+}
+
+async function playCasino({ guildId, userId, game, amount, choice, random = crypto.randomInt }) {
+  const settings = await getSettings(guildId);
+  const casino = settings?.casino || {};
+  const casinoGame = game === 'coin' ? 'flip' : game;
+  const gameSettings = casino[casinoGame] || { enabled: true, multiplier: game === 'slots' ? 5 : 2 };
+  if (gameSettings.enabled === false) throw new EconomyError('Esse jogo está temporariamente indisponível.');
+  assertAmount(amount, 'Aposta', { max: casino.maxBet || 1000000000 });
+  const result = {};
+  if (game === 'coin') {
+    if (!['cara', 'coroa'].includes(choice)) throw new RangeError('Escolha cara ou coroa.');
+    result.outcome = random(0, 2) === 0 ? 'cara' : 'coroa';
+    result.multiplier = gameSettings.multiplier || 2;
+    result.net = result.outcome === choice ? amount * (result.multiplier - 1) : -amount;
+    result.message = result.net > 0 ? 'A moeda caiu do seu lado. A Kiryu paga ' + result.multiplier + '× no total.' : 'A moeda escolheu o outro lado. A casa fica com a aposta.';
+  } else if (game === 'dice') {
+    if (!['baixo', 'alto'].includes(choice)) throw new RangeError('Escolha alto ou baixo.');
+    result.outcome = random(1, 7);
+    result.multiplier = gameSettings.multiplier || 2;
+    result.net = result.outcome === 4 ? 0 : ((result.outcome > 4) === (choice === 'alto') ? amount * (result.multiplier - 1) : -amount);
+    result.message = result.net > 0 ? 'Os dados vieram do seu lado. A Kiryu paga ' + result.multiplier + '× no total.' : (result.net === 0 ? 'Quatro. A Kiryu devolve sua aposta.' : 'Os dados foram contra você. A mesa recolhe a aposta.');
+  } else if (game === 'slots') {
+    const symbols = ['🌸', '⚔️', '🔮', '👑', '🐉'];
+    result.outcome = [symbols[random(0, symbols.length)], symbols[random(0, symbols.length)], symbols[random(0, symbols.length)]];
+    result.multiplier = gameSettings.multiplier || 5;
+    const matches = result.outcome[0] === result.outcome[1] && result.outcome[1] === result.outcome[2];
+    const pair = !matches && (result.outcome[0] === result.outcome[1] || result.outcome[1] === result.outcome[2] || result.outcome[0] === result.outcome[2]);
+    result.net = matches ? amount * (result.multiplier - 1) : (pair ? 0 : -amount);
+    result.message = matches ? 'Três iguais! A Kiryu solta **' + result.multiplier + '× o valor apostado** no total.' : (pair ? 'Quase. Par deu empate: aposta devolvida.' : 'As figuras não combinaram. A máquina engoliu a aposta.');
+  } else {
+    throw new RangeError('Jogo do cassino inválido.');
+  }
+  await ensureAccount(guildId, userId);
+  const query = { guildId, userId, wallet: { $gte: amount } };
+  if (result.net > 0) query.wallet.$lte = MAX_BALANCE - result.net;
+  const account = await EconomyAccount.findOneAndUpdate(query, { $inc: { wallet: result.net } }, { returnDocument: 'after' });
+  if (!account) throw new EconomyError('A aposta precisa caber na sua carteira atual. Confira seu saldo e tente novamente.');
+  await auditAfterAccountUpdate({ guildId, actorId: userId, userId, operation: 'casino_' + game, currency: 'fragments', amount, walletDelta: result.net, details: { choice, outcome: result.outcome, net: result.net } });
+  return { ...result, amount, account: account.toObject ? account.toObject() : account };
+}
+
 async function convertOrbes({ guildId, userId, source, amount, actorId = userId }) {
-  const conversion = orbConversion(source, amount);
+  const settings = await getSettings(guildId);
+  const conversion = orbConversion(source, amount, settings.orbs?.conversionRate || 10);
   await ensureAccount(guildId, userId);
   const account = await EconomyAccount.findOneAndUpdate(
     { guildId, userId, ['orbs.' + source]: { $gte: amount }, ['orbs.' + conversion.destination]: { $lte: MAX_BALANCE - conversion.result } },
@@ -179,15 +249,24 @@ async function claimWork({ guildId, userId, now = Date.now(), random = crypto.ra
 
 async function claimDaily({ guildId, userId, now = Date.now(), random = crypto.randomInt }) {
   const settings = await getSettings(guildId);
-  await ensureAccount(guildId, userId);
+  const current = await ensureAccount(guildId, userId);
+  const { dayKey, nextResetAt } = dailyCycle(now);
+  // Preserve a claim made before the calendar-key migration if it happened
+  // earlier today; legacy timestamps remain available for history.
+  if (!current?.dailyClaimDay && current?.lastDailyAt && dailyCycle(current.lastDailyAt).dayKey === dayKey) {
+    await EconomyAccount.findOneAndUpdate(
+      { guildId, userId, dailyClaimDay: null },
+      { $set: { dailyClaimDay: dayKey } },
+      { returnDocument: 'after' },
+    );
+  }
   const ranges = settings.daily.rewardRanges;
   const fragments = random(ranges.fragments.min, ranges.fragments.max + 1);
   const orbs = Object.fromEntries(ORB_TYPES.map((type) => {
     const range = ranges.orbs[type];
     return [type, random(range.min, range.max + 1)];
   }));
-  const cutoff = new Date(now - settings.daily.cooldownMs);
-  const update = { $set: { lastDailyAt: new Date(now) }, $inc: { wallet: fragments } };
+  const update = { $set: { lastDailyAt: new Date(now), dailyClaimDay: dayKey }, $inc: { wallet: fragments } };
   const orbDelta = {};
   for (const [type, amount] of Object.entries(orbs)) {
     if (amount) {
@@ -197,24 +276,26 @@ async function claimDaily({ guildId, userId, now = Date.now(), random = crypto.r
   }
   const orbBounds = Object.fromEntries(ORB_TYPES.filter((type) => orbs[type]).map((type) => ['orbs.' + type, { $lte: MAX_BALANCE - orbs[type] }]));
   const account = await EconomyAccount.findOneAndUpdate(
-    { guildId, userId, $or: [{ lastDailyAt: null }, { lastDailyAt: { $exists: false } }, { lastDailyAt: { $lte: cutoff } }], wallet: { $lte: MAX_BALANCE - fragments }, ...orbBounds },
+    { guildId, userId, dailyClaimDay: { $ne: dayKey }, wallet: { $lte: MAX_BALANCE - fragments }, ...orbBounds },
     update,
     { returnDocument: 'after' },
   );
   if (!account) {
     const current = await EconomyAccount.findOne({ guildId, userId });
-    const wait = remainingMs(current?.lastDailyAt, settings.daily.cooldownMs, now);
-    if (wait) throw new EconomyError('Sua recompensa diária estará disponível em **' + formatDuration(wait) + '**.', { remainingMs: wait });
+    if (current?.dailyClaimDay === dayKey) {
+      throw new EconomyError('Hoje você já pegou sua recompensa. A Kiryu libera a próxima <t:' + Math.floor(nextResetAt.getTime() / 1000) + ':R>.', { nextResetAt, dayKey });
+    }
     throw new EconomyError('Não foi possível creditar a recompensa por causa do limite de saldo.');
   }
   await auditAfterAccountUpdate({ guildId, actorId: userId, userId, operation: 'daily_reward', currency: 'mixed', amount: fragments, walletDelta: fragments, orbDelta, details: { lastCollectedAt: new Date(now) } });
-  return { account: account.toObject ? account.toObject() : account, fragments, orbs, collectedAt: new Date(now), cooldownMs: settings.daily.cooldownMs };
+  return { account: account.toObject ? account.toObject() : account, fragments, orbs, collectedAt: new Date(now), dayKey, nextResetAt };
 }
 
 function itemSnapshot(item, selectedChoice = item.selectedChoice || null) {
   return {
     name: item.name,
     emoji: item.emoji || '📦',
+    thumbnailUrl: item.thumbnailUrl || '',
     description: item.description || '',
     inventoryVisible: item.inventoryVisible !== false,
     usable: Boolean(item.usable),
@@ -316,7 +397,8 @@ async function restorePurchasedStock(item, quantity) {
   if (!restored) logger.error('Não foi possível reverter o estoque de uma compra cancelada.');
 }
 
-async function buyItem({ guildId, userId, itemId, purchaseChoice = null, now = new Date(), interactionId = null }) {
+async function buyItem({ guildId, userId, itemId, purchaseChoice = null, units = 1, now = new Date(), interactionId = null }) {
+  assertAmount(units, 'Unidades por compra', { min: 1, max: 10 });
   if (interactionId) {
     const previous = await EconomyTransaction.findOne({ idempotencyKey: interactionId }).lean();
     if (previous) return { duplicate: true, transaction: previous };
@@ -339,7 +421,8 @@ async function buyItem({ guildId, userId, itemId, purchaseChoice = null, now = n
     }
     const availability = itemAvailability(item, now);
     if (!availability.available) throw new EconomyError(availability.reason);
-    const quantity = item.purchaseQuantity;
+    const quantity = item.purchaseQuantity * units;
+    if (!Number.isSafeInteger(quantity)) throw new EconomyError('A quantidade total excede o limite seguro.');
     if (!item.stackable && quantity > 1000) throw new EconomyError('Este item não acumulável excede o limite de unidades por compra.');
     const cost = item.price * quantity;
     if (!Number.isSafeInteger(cost)) throw new EconomyError('O preço configurado para este item é inválido.');
@@ -380,7 +463,7 @@ async function buyItem({ guildId, userId, itemId, purchaseChoice = null, now = n
         orbType: item.orbType, amount: cost, walletDelta,
         orbDelta: Object.keys(orbDelta).length ? orbDelta : null,
         itemId: item._id, itemSku: item.sku, itemSnapshot: itemSnapshot(item, selectedChoice),
-        details: { quantity, delivery: toInventory ? 'inventory' : 'immediate', action: item.action, actionAmount: item.actionAmount, purchaseChoice: selectedChoice }, idempotencyKey: interactionId,
+        details: { quantity, units, delivery: toInventory ? 'inventory' : 'immediate', action: item.action, actionAmount: item.actionAmount, purchaseChoice: selectedChoice }, idempotencyKey: interactionId,
       };
       await auditRecord(transaction);
       return { account: account.toObject ? account.toObject() : account, item, quantity, cost, deliveredToInventory: toInventory, selectedChoice };
@@ -431,19 +514,25 @@ async function restoreConsumedInventory(entry) {
   });
 }
 
-async function listInventory(guildId, userId, { page = 0, pageSize = 5 } = {}) {
+async function listInventory(guildId, userId, { page = 0, pageSize = 5, filter = 'all' } = {}) {
   const query = { guildId, userId, 'itemSnapshot.inventoryVisible': { $ne: false } };
+  if (filter === 'usable') query['itemSnapshot.usable'] = true;
+  else if (filter === 'persistent') query['itemSnapshot.consumeOnUse'] = false;
+  else if (filter === 'not_usable') query['itemSnapshot.usable'] = false;
   const total = await EconomyInventory.countDocuments(query);
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const currentPage = Math.min(Math.max(0, page), pages - 1);
   const items = await EconomyInventory.find(query).sort({ updatedAt: -1, _id: 1 }).skip(currentPage * pageSize).limit(pageSize).lean();
-  return { items, total, page: currentPage, pageSize, pages };
+  return { items, total, page: currentPage, pageSize, pages, filter };
 }
 
-async function useInventoryItem({ guildId, userId, sku, now = new Date() }) {
+async function useInventoryItem({ guildId, userId, sku, inventoryId = null, now = new Date() }) {
   await ensureAccount(guildId, userId);
   return runStandaloneOperation(async () => {
-    const entry = await EconomyInventory.findOne({ guildId, userId, sku }).sort({ slot: 1 }).lean();
+    const query = inventoryId ? { guildId, userId, _id: inventoryId } : { guildId, userId, sku };
+    const entryQuery = EconomyInventory.findOne(query);
+    if (!inventoryId && entryQuery.sort) entryQuery.sort({ slot: 1 });
+    const entry = await (entryQuery.lean ? entryQuery.lean() : entryQuery);
     if (!entry) throw new EconomyError('Você não possui esse item no inventário.');
     const item = entry.itemSnapshot;
     if (!item.usable) throw new EconomyError('Esse item não pode ser utilizado.');
@@ -581,7 +670,7 @@ async function deleteCatalogItem({ guildId, actorId, sku }) {
 }
 
 module.exports = {
-  runStandaloneOperation, ensureAccount, getAccount, getSettings, adjustFragments, adjustOrbs, bankTransfer,
+  runStandaloneOperation, ensureAccount, getAccount, getSettings, adjustFragments, adjustOrbs, bankTransfer, transferFragments, playCasino,
   convertOrbes, claimWork, claimDaily, itemAvailability, itemSnapshot, buyItem, getStoreItem, getStorePage,
   listInventory, useInventoryItem, deliverItem, removeInventoryItems, getClaimableRules,
   claimCollectRules, listTransactions, deleteCatalogItem,

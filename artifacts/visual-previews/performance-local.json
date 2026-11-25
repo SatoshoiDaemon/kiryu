@@ -1,0 +1,27 @@
+{
+  "measuredAt": "2026-11-25T21:12:48.924Z",
+  "node": "v26.13.1",
+  "scope": "Local CPU-only microbenchmark. No Discord gateway, network avatar, or MongoDB calls.",
+  "profilePngColdRender": {
+    "count": 20,
+    "averageMs": 85.545,
+    "p50Ms": 83.183,
+    "p95Ms": 88.787,
+    "maxMs": 118.001
+  },
+  "profilePngWarmCache": {
+    "count": 100,
+    "averageMs": 0.004,
+    "p50Ms": 0.003,
+    "p95Ms": 0.004,
+    "maxMs": 0.063
+  },
+  "slashSerialization": {
+    "commandsPerIteration": 15,
+    "count": 100,
+    "averageMs": 0.121,
+    "p50Ms": 0.098,
+    "p95Ms": 0.201,
+    "maxMs": 0.99
+  }
+}

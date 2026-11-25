@@ -66,7 +66,7 @@ async function sweep(client, now = Date.now()) {
       }
       if (now - tracking.lastAwardAt < guildConfig.voiceXp.intervalMs) continue;
       try {
-        await awardVoiceXp(guild.id, member.id, member);
+        await awardVoiceXp(guild.id, member.id, member, { guildConfig });
         tracking.lastAwardAt = now;
       } catch {
         logger.warn('Falha ao conceder XP de voz; o próximo ciclo tentará novamente.');

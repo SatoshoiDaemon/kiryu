@@ -1,0 +1,638 @@
+{
+  "generatedAt": "2026-11-25T16:00:00.000Z",
+  "note": "Payloads serializados dos builders usados na implementação. São componentes Discord V2 reais, não mockups renderizados.",
+  "store": {
+    "type": 17,
+    "accent_color": 1477224,
+    "components": [
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "-# BAZAR DO ETERNITY\n# Loja de Fragmentos\nItens do Eternity Realms comprados com Fragmentos. Selecione o preço para confirmar uma compra."
+          }
+        ],
+        "accessory": {
+          "type": 11,
+          "media": {
+            "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/store.png"
+          },
+          "description": "Selo Kiryu · Loja de Fragmentos"
+        }
+      },
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "**🔮 Bola de Cristal**\nUma peça de vidro arcano com opções preservadas no catálogo.\n\n**120 <:fragmento:1568121720857170000>** por unidade configurada · ✅ Estoque: 12"
+          }
+        ],
+        "accessory": {
+          "type": 2,
+          "custom_id": "econ:store:detail:123456789012345678:674e100000000000000001:fragments:0",
+          "label": "Ver detalhes",
+          "style": 1,
+          "disabled": false
+        }
+      },
+      {
+        "type": 14
+      },
+      {
+        "type": 10,
+        "content": "Página **1/1** · Use os botões para navegar."
+      },
+      {
+        "type": 1,
+        "components": [
+          {
+            "type": 2,
+            "custom_id": "econ:store:page:fragments:0:previous",
+            "label": "Página anterior",
+            "style": 2,
+            "disabled": true
+          },
+          {
+            "type": 2,
+            "custom_id": "econ:store:page:fragments:0:next",
+            "label": "Próxima página",
+            "style": 1,
+            "disabled": true
+          }
+        ]
+      },
+      {
+        "type": 14,
+        "spacing": 1
+      },
+      {
+        "type": 12,
+        "items": [
+          {
+            "media": {
+              "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/kiryu-divider.gif"
+            },
+            "description": "Divisória da Kiryu"
+          }
+        ]
+      },
+      {
+        "type": 10,
+        "content": "-# <t:1795641166:R> · **Developer by Krieg.js**"
+      }
+    ]
+  },
+  "storeDetails": {
+    "type": 17,
+    "accent_color": 1477224,
+    "components": [
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "-# BAZAR DO ETERNITY\n# Bola de Cristal\nDetalhes do item · 🔮"
+          }
+        ],
+        "accessory": {
+          "type": 11,
+          "media": {
+            "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/store.png"
+          },
+          "description": "Selo Kiryu · Bola de Cristal"
+        }
+      },
+      {
+        "type": 12,
+        "items": [
+          {
+            "media": {
+              "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/store.png"
+            },
+            "description": "Bola de Cristal"
+          }
+        ]
+      },
+      {
+        "type": 10,
+        "content": "Uma peça de vidro arcano com opções preservadas no catálogo.\n\n**Preço total:** 240 <:fragmento:1568121720857170000>\n**Quantidade:** 2\n**Estoque:** 12\n**Entrega:** inventário"
+      },
+      {
+        "type": 1,
+        "components": [
+          {
+            "type": 3,
+            "custom_id": "econ:store:quantity:123456789012345678:674e100000000000000001:fragments:0",
+            "placeholder": "Quantidade",
+            "options": [
+              {
+                "label": "1 unidade(s)",
+                "value": "1",
+                "default": false
+              },
+              {
+                "label": "2 unidade(s)",
+                "value": "2",
+                "default": true
+              },
+              {
+                "label": "5 unidade(s)",
+                "value": "5",
+                "default": false
+              },
+              {
+                "label": "10 unidade(s)",
+                "value": "10",
+                "default": false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": 1,
+        "components": [
+          {
+            "type": 3,
+            "custom_id": "econ:store:variant:123456789012345678:674e100000000000000001:fragments:0:2",
+            "placeholder": "Opção: Cristal violeta",
+            "options": [
+              {
+                "label": "Cristal azul",
+                "value": "blue",
+                "description": "Acabamento azul",
+                "default": false
+              },
+              {
+                "label": "Cristal violeta",
+                "value": "violet",
+                "description": "Acabamento violeta",
+                "default": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": 1,
+        "components": [
+          {
+            "type": 2,
+            "custom_id": "econ:store:confirm:123456789012345678:674e100000000000000001:fragments:0:2:1",
+            "label": "Confirmar · 240 <:fragmento:1568121720857170000>",
+            "style": 3,
+            "disabled": false
+          },
+          {
+            "type": 2,
+            "custom_id": "econ:store:back:123456789012345678:fragments:0",
+            "label": "Voltar à vitrine",
+            "style": 2
+          }
+        ]
+      },
+      {
+        "type": 14,
+        "spacing": 1
+      },
+      {
+        "type": 12,
+        "items": [
+          {
+            "media": {
+              "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/kiryu-divider.gif"
+            },
+            "description": "Divisória da Kiryu"
+          }
+        ]
+      },
+      {
+        "type": 10,
+        "content": "-# <t:1795641166:R> · **Developer by Krieg.js**"
+      }
+    ]
+  },
+  "inventory": {
+    "type": 17,
+    "accent_color": 10295117,
+    "components": [
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "-# CRÔNICAS DE MEMBRO\n# Inventário\nPertence a <@123456789012345678> · 2 item(ns) nesta categoria."
+          }
+        ],
+        "accessory": {
+          "type": 11,
+          "media": {
+            "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/profile.png"
+          },
+          "description": "Selo Kiryu · Inventário"
+        }
+      },
+      {
+        "type": 1,
+        "components": [
+          {
+            "type": 3,
+            "custom_id": "econ:inventory:filter:123456789012345678:123456789012345678",
+            "placeholder": "Filtrar inventário",
+            "options": [
+              {
+                "label": "Tudo",
+                "value": "all",
+                "description": "Todos os itens visíveis",
+                "default": true
+              },
+              {
+                "label": "Prontos para uso",
+                "value": "usable",
+                "description": "Itens que podem ser acionados pelo bot",
+                "default": false
+              },
+              {
+                "label": "Lembranças",
+                "value": "persistent",
+                "description": "Itens que permanecem após o uso",
+                "default": false
+              },
+              {
+                "label": "Uso no RP",
+                "value": "not_usable",
+                "description": "Itens consultados e aplicados no RP textual",
+                "default": false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "**🔮 Bola de Cristal** × 2\n◇ Permanece após o uso"
+          }
+        ],
+        "accessory": {
+          "type": 2,
+          "custom_id": "econ:inventory:detail:123456789012345678:123456789012345678:675e100000000000000002:0:all",
+          "label": "Detalhes",
+          "style": 1
+        }
+      },
+      {
+        "type": 14
+      },
+      {
+        "type": 10,
+        "content": "Página **1/1**"
+      },
+      {
+        "type": 1,
+        "components": [
+          {
+            "type": 2,
+            "custom_id": "econ:inventory:page:123456789012345678:123456789012345678:0:previous:all",
+            "label": "Anterior",
+            "style": 2,
+            "disabled": true
+          },
+          {
+            "type": 2,
+            "custom_id": "econ:inventory:page:123456789012345678:123456789012345678:0:next:all",
+            "label": "Próxima",
+            "style": 1,
+            "disabled": true
+          }
+        ]
+      },
+      {
+        "type": 14,
+        "spacing": 1
+      },
+      {
+        "type": 12,
+        "items": [
+          {
+            "media": {
+              "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/kiryu-divider.gif"
+            },
+            "description": "Divisória da Kiryu"
+          }
+        ]
+      },
+      {
+        "type": 10,
+        "content": "-# <t:1795641166:R> · **Developer by Krieg.js**"
+      }
+    ]
+  },
+  "orbs": {
+    "type": 17,
+    "accent_color": 7754953,
+    "components": [
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "-# RELIQUIÁRIO · ORBES\n# Reliquário de Orbes\nCada categoria mantém seu próprio saldo. A conversão segue a taxa atual definida pela equipe."
+          }
+        ],
+        "accessory": {
+          "type": 11,
+          "media": {
+            "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/orbs.png"
+          },
+          "description": "Selo Kiryu · Reliquário de Orbes"
+        }
+      },
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "## ✦ Verde\n**12 Orbes**"
+          }
+        ],
+        "accessory": {
+          "type": 11,
+          "media": {
+            "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/orb-green.png"
+          },
+          "description": "Verde"
+        }
+      },
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "## ❖ Azul\n**4 Orbes**"
+          }
+        ],
+        "accessory": {
+          "type": 11,
+          "media": {
+            "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/orb-blue.png"
+          },
+          "description": "Azul"
+        }
+      },
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "## ✺ Laranja\n**3 Orbes**"
+          }
+        ],
+        "accessory": {
+          "type": 11,
+          "media": {
+            "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/orb-orange.png"
+          },
+          "description": "Laranja"
+        }
+      },
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "## ✹ Vermelha\n**1 Orbes**"
+          }
+        ],
+        "accessory": {
+          "type": 11,
+          "media": {
+            "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/orb-red.png"
+          },
+          "description": "Vermelha"
+        }
+      },
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "## ◈ Preta\n**0 Orbes**"
+          }
+        ],
+        "accessory": {
+          "type": 11,
+          "media": {
+            "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/orb-black.png"
+          },
+          "description": "Preta"
+        }
+      },
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "## ✧ Dourada\n**0 Orbes**"
+          }
+        ],
+        "accessory": {
+          "type": 11,
+          "media": {
+            "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/orb-gold.png"
+          },
+          "description": "Dourada"
+        }
+      },
+      {
+        "type": 1,
+        "components": [
+          {
+            "type": 3,
+            "custom_id": "econ:orbs:source:123456789012345678",
+            "placeholder": "Selecione a Orbe de origem",
+            "options": [
+              {
+                "label": "Verde",
+                "value": "green",
+                "description": "Converter pela taxa definida no painel de configuração",
+                "emoji": {
+                  "name": "🟢",
+                  "animated": false
+                }
+              },
+              {
+                "label": "Azul",
+                "value": "blue",
+                "description": "Converter pela taxa definida no painel de configuração",
+                "emoji": {
+                  "name": "🔵",
+                  "animated": false
+                }
+              },
+              {
+                "label": "Laranja",
+                "value": "orange",
+                "description": "Converter pela taxa definida no painel de configuração",
+                "emoji": {
+                  "name": "🟠",
+                  "animated": false
+                }
+              },
+              {
+                "label": "Vermelha",
+                "value": "red",
+                "description": "Converter pela taxa definida no painel de configuração",
+                "emoji": {
+                  "name": "🔴",
+                  "animated": false
+                }
+              },
+              {
+                "label": "Preta",
+                "value": "black",
+                "description": "Converter pela taxa definida no painel de configuração",
+                "emoji": {
+                  "name": "⚫",
+                  "animated": false
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": 14,
+        "spacing": 1
+      },
+      {
+        "type": 12,
+        "items": [
+          {
+            "media": {
+              "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/kiryu-divider.gif"
+            },
+            "description": "Divisória da Kiryu"
+          }
+        ]
+      },
+      {
+        "type": 10,
+        "content": "-# <t:1795641166:R> · **Developer by Krieg.js**"
+      }
+    ]
+  },
+  "wallet": {
+    "type": 17,
+    "accent_color": 15246103,
+    "components": [
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "-# COFRE DA COMUNIDADE · FRAGMENTOS\n# Bolsa de Aventureira\nOs Fragmentos circulam por toda Eternity."
+          }
+        ],
+        "accessory": {
+          "type": 11,
+          "media": {
+            "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/fragments.png"
+          },
+          "description": "Selo Kiryu · Bolsa de Aventureira"
+        }
+      },
+      {
+        "type": 10,
+        "content": "Em mãos: **4.200 <:fragmento:1568121720857170000>** · No banco: **18.000 <:fragmento:1568121720857170000>** · Patrimônio: **22.200 <:fragmento:1568121720857170000>**"
+      },
+      {
+        "type": 1,
+        "components": [
+          {
+            "type": 2,
+            "custom_id": "econ:wallet:inventory:123456789012345678",
+            "label": "Abrir inventário",
+            "style": 1
+          },
+          {
+            "type": 2,
+            "custom_id": "econ:wallet:deposit:123456789012345678",
+            "label": "Depositar",
+            "style": 3
+          },
+          {
+            "type": 2,
+            "custom_id": "econ:wallet:withdraw:123456789012345678",
+            "label": "Sacar",
+            "style": 2
+          }
+        ]
+      },
+      {
+        "type": 14,
+        "spacing": 1
+      },
+      {
+        "type": 12,
+        "items": [
+          {
+            "media": {
+              "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/kiryu-divider.gif"
+            },
+            "description": "Divisória da Kiryu"
+          }
+        ]
+      },
+      {
+        "type": 10,
+        "content": "-# <t:1795641166:R> · **Developer by Krieg.js**"
+      }
+    ]
+  },
+  "configuration": {
+    "type": 17,
+    "accent_color": 7031700,
+    "components": [
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "-# ETERNITY REALMS · KIRYU\n# Painel de configuração\nEscolha uma oficina para ajustar o comportamento da Kiryu."
+          }
+        ],
+        "accessory": {
+          "type": 11,
+          "media": {
+            "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/crest.png"
+          },
+          "description": "Selo Kiryu · Painel de configuração"
+        }
+      },
+      {
+        "type": 14,
+        "spacing": 1
+      },
+      {
+        "type": 12,
+        "items": [
+          {
+            "media": {
+              "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/kiryu-divider.gif"
+            },
+            "description": "Divisória da Kiryu"
+          }
+        ]
+      },
+      {
+        "type": 10,
+        "content": "-# <t:1795641166:R> · **Developer by Krieg.js**"
+      }
+    ]
+  }
+}

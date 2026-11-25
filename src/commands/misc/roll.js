@@ -5,7 +5,7 @@ const { replyV2, replyMessageV2 } = require('../../modules/components');
 const data = new SlashCommandBuilder()
   .setName('roll')
   .setDescription('Rola dados usando uma expressão como 2d20+3')
-  .addStringOption((option) => option.setName('expressao').setDescription('Ex.: 1d20, 4d20+10 ou 3d6-2').setRequired(true).setMaxLength(32));
+  .addStringOption((option) => option.setName('expression').setDescription('Ex.: 1d20, 4d20+10 ou 3d6-2').setRequired(true).setMaxLength(32));
 
 function format(result) {
   const modifierText = result.modifier ? ' · modificador ' + (result.modifier > 0 ? '+' : '') + result.modifier : '';
@@ -13,7 +13,7 @@ function format(result) {
 }
 
 async function execute(interaction) {
-  const expression = interaction.options.getString('expressao');
+  const expression = interaction.options.getString('expression');
   try {
     await replyV2(interaction, format(parseDiceExpression(expression)));
   } catch (error) {

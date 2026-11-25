@@ -59,16 +59,17 @@ async function getProfile(guildId, userId) {
 async function updateProfile(guildId, userId, operation) {
   return serialize(guildId + ':' + userId, async () => {
     const profile = await getOrCreateProfile(guildId, userId);
+    const previousLevel = profile.level;
     const result = operation({ level: profile.level, xp: profile.xp });
     profile.level = result.level;
     profile.xp = result.xp;
     await profile.save();
-    return { ...result, level: profile.level, xp: profile.xp };
+    return { ...result, previousLevel, level: profile.level, xp: profile.xp };
   });
 }
 
-async function grantXp(guildId, userId, amount, member = null, { applyBuff = true } = {}) {
-  const guildConfig = applyBuff ? await getGuildConfig(guildId) : null;
+async function grantXp(guildId, userId, amount, member = null, { applyBuff = true, guildConfig: providedConfig = null } = {}) {
+  const guildConfig = applyBuff ? (providedConfig || await getGuildConfig(guildId)) : null;
   const multiplier = guildConfig ? getMultiplier(member, guildConfig) : 1;
   const baseXp = Math.max(0, Math.floor(Number(amount) || 0));
   const xpAdded = Math.floor(baseXp * multiplier);
@@ -88,19 +89,28 @@ async function subtractLevels(guildId, userId, count) {
   return updateProfile(guildId, userId, (profile) => rules.removeLevels(profile, count));
 }
 
-async function awardMessageXp(guildId, userId, member, channelId, cooldowns, now = Date.now()) {
-  const guildConfig = await getGuildConfig(guildId);
+async function setTotalXp(guildId, userId, totalXp) {
+  return updateProfile(guildId, userId, (profile) => rules.setTotalXp(profile, totalXp));
+}
+
+async function setLevel(guildId, userId, level) {
+  return updateProfile(guildId, userId, (profile) => rules.setLevel(profile, level));
+}
+
+async function awardMessageXp(guildId, userId, member, channelId, cooldowns, now = Date.now(), { guildConfig: providedConfig = null } = {}) {
+  const guildConfig = providedConfig || await getGuildConfig(guildId);
   const settings = guildConfig.messageXp;
   if (settings.excludedChannelIds.includes(channelId)) return null;
   if (!cooldowns.canAward(guildId + ':' + userId, settings.cooldownMs, now)) return null;
   const amount = randomInt(settings.min, settings.max + 1);
-  return grantXp(guildId, userId, amount, member);
+  const result = await grantXp(guildId, userId, amount, member, { guildConfig });
+  return { ...result, levelUp: { enabled: guildConfig.levelUp?.enabled !== false, message: guildConfig.levelUp?.message || '' } };
 }
 
-async function awardVoiceXp(guildId, userId, member) {
-  const guildConfig = await getGuildConfig(guildId);
+async function awardVoiceXp(guildId, userId, member, { guildConfig: providedConfig = null } = {}) {
+  const guildConfig = providedConfig || await getGuildConfig(guildId);
   const amount = randomInt(guildConfig.voiceXp.min, guildConfig.voiceXp.max + 1);
-  return grantXp(guildId, userId, amount, member);
+  return grantXp(guildId, userId, amount, member, { guildConfig });
 }
 
 module.exports = {
@@ -111,6 +121,8 @@ module.exports = {
   subtractXp,
   grantLevels,
   subtractLevels,
+  setTotalXp,
+  setLevel,
   awardMessageXp,
   awardVoiceXp,
 };

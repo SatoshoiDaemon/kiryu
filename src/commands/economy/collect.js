@@ -4,7 +4,8 @@ const { getRoleIds } = require('../../modules/economyInteractions');
 const { collectContainer, payload, respond } = require('../../modules/economyViews');
 const config = require('../../config');
 
-const data = new SlashCommandBuilder().setName('coletar').setDescription('Consulte e colete recompensas disponíveis para seus cargos.');
+const data = new SlashCommandBuilder().setName('rewards').setDescription('Consulte e resgate suas recompensas da comunidade.')
+  .addSubcommand((sub) => sub.setName('claim').setDescription('Ver e coletar recompensas disponíveis'));
 
 async function execute(interaction) {
   if (interaction.guildId !== config.guildId) return;

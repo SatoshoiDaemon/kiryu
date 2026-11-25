@@ -13,7 +13,7 @@ jest.mock('../src/logger', () => ({ error: jest.fn(), warn: jest.fn() }));
 const mongoose = require('mongoose');
 const logger = require('../src/logger');
 const db = require('../src/database');
-const { runStandaloneOperation, getSettings, claimWork, bankTransfer, buyItem, getStorePage, claimDaily, convertOrbes, getClaimableRules, claimCollectRules, useInventoryItem } = require('../src/modules/economyService');
+const { runStandaloneOperation, getSettings, claimWork, bankTransfer, transferFragments, playCasino, buyItem, getStorePage, claimDaily, convertOrbes, getClaimableRules, claimCollectRules, useInventoryItem } = require('../src/modules/economyService');
 
 function doc(values = {}) {
   return { ...values, toObject: () => ({ ...values }) };
@@ -115,6 +115,35 @@ describe('atomicidade das operações econômicas', () => {
     expect(db.EconomyAccount.findOneAndUpdate.mock.calls[1][0].bank).toEqual({ $gte: 3 });
   });
 
+  test('transferência entre membros debita e credita carteiras com limites atômicos', async () => {
+    db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(doc({ wallet: 0 })).mockResolvedValueOnce(doc({ wallet: 0 }))
+      .mockResolvedValueOnce(doc({ wallet: 70 })).mockResolvedValueOnce(doc({ wallet: 30 }));
+    db.EconomyTransaction.create.mockResolvedValue([]);
+    await expect(transferFragments({ guildId: 'g', senderId: 'a', recipientId: 'b', amount: 30 }))
+      .resolves.toMatchObject({ sender: { wallet: 70 }, recipient: { wallet: 30 } });
+    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[2][0]).toMatchObject({ userId: 'a', wallet: { $gte: 30 } });
+    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[3][0]).toMatchObject({ userId: 'b', wallet: { $lte: Number.MAX_SAFE_INTEGER - 30 } });
+    expect(db.EconomyTransaction.create).toHaveBeenCalledTimes(2);
+  });
+
+  test('cassino registra resultado e aplica aposta/pagamento em uma atualização atômica', async () => {
+    db.EconomySettings.findById.mockResolvedValue({ casino: { maxBet: 1000000000, flip: { enabled: true, multiplier: 2 } } });
+    db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(doc({ wallet: 2000 })).mockResolvedValueOnce(doc({ wallet: 2500 }));
+    db.EconomyTransaction.create.mockResolvedValue([]);
+    await expect(playCasino({ guildId: 'g', userId: 'u', game: 'coin', choice: 'cara', amount: 500, random: () => 0 }))
+      .resolves.toMatchObject({ outcome: 'cara', net: 500, account: { wallet: 2500 } });
+    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[1][0].wallet).toEqual({ $gte: 500, $lte: Number.MAX_SAFE_INTEGER - 500 });
+    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[1][1].$inc.wallet).toBe(500);
+    expect(db.EconomyTransaction.create.mock.calls[0][0][0]).toMatchObject({ operation: 'casino_coin', walletDelta: 500 });
+  });
+
+  test('cassino respeita a desativação individual de um jogo no painel', async () => {
+    db.EconomySettings.findById.mockResolvedValue({ casino: { flip: { enabled: false, multiplier: 2 } } });
+    await expect(playCasino({ guildId: 'g', userId: 'u', game: 'coin', choice: 'cara', amount: 10 }))
+      .rejects.toMatchObject({ publicMessage: expect.stringMatching(/indisponível/) });
+    expect(db.EconomyAccount.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
   test('compra sem estoque reverte o débito e não entrega nem registra o item', async () => {
     const item = {
       _id: 'item-id', guildId: 'g', sku: 'antidoto', name: 'Antídoto', description: 'Uso narrativo', emoji: '🧪',
@@ -161,9 +190,8 @@ describe('atomicidade das operações econômicas', () => {
     expect(db.EconomyTransaction.create.mock.calls[0][0][0]).toMatchObject({ operation: 'item_purchase', walletDelta: -100, itemSku: 'antidoto' });
   });
 
-  test('repetir /daily no cooldown não credita uma segunda recompensa', async () => {
+  test('repetir /daily no mesmo dia de São Paulo não credita uma segunda recompensa', async () => {
     const now = new Date('2026-11-06T12:00:00Z');
-    const previousClaim = new Date('2026-11-06T11:00:00Z');
     const account = doc({ wallet: 500, bank: 0, orbs: { green: 1 } });
     db.EconomySettings.findById.mockResolvedValue({ daily: {
       rewardRanges: { fragments: { min: 500, max: 500 }, orbs: {
@@ -173,18 +201,17 @@ describe('atomicidade das operações econômicas', () => {
       cooldownMs: 86400000, rangesConfigured: true,
     } });
     db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(account).mockResolvedValueOnce(null);
-    db.EconomyAccount.findOne.mockReturnValue(query({ lastDailyAt: previousClaim }));
+    db.EconomyAccount.findOne.mockReturnValue(query({ lastDailyAt: now, dailyClaimDay: '2026-11-06' }));
 
     await expect(claimDaily({ guildId: 'g', userId: 'u', now, random: (min) => min }))
-      .rejects.toMatchObject({ publicMessage: expect.stringContaining('23h') });
-    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[1][0].$or[2].lastDailyAt.$lte)
-      .toEqual(new Date(now.getTime() - 86400000));
+      .rejects.toMatchObject({ publicMessage: expect.stringContaining('próxima') });
+    expect(db.EconomyAccount.findOneAndUpdate.mock.calls[1][0].dailyClaimDay).toEqual({ $ne: '2026-11-06' });
     expect(db.EconomyTransaction.create).not.toHaveBeenCalled();
   });
 
   test('/daily sorteia cada faixa e credita Fragmentos e Orbes numa atualização atômica', async () => {
     const now = Date.now();
-    const updated = doc({ wallet: 1000, orbs: { green: 100, blue: 50, orange: 10 }, lastDailyAt: new Date(now) });
+    const updated = doc({ wallet: 1000, orbs: { green: 100, blue: 50, orange: 10 }, lastDailyAt: new Date(now), dailyClaimDay: '2026-11-25' });
     db.EconomySettings.findById.mockResolvedValue({ daily: {
       rewardRanges: {
         fragments: { min: 400, max: 1000 },
@@ -208,6 +235,7 @@ describe('atomicidade das operações econômicas', () => {
 
   test('conversão de Orbes usa filtro de saldo atômico', async () => {
     const account = doc({ wallet: 0, bank: 0, orbs: { green: 9, blue: 0 } });
+    db.EconomySettings.findById.mockResolvedValue({ orbs: { conversionRate: 10 } });
     db.EconomyAccount.findOneAndUpdate.mockResolvedValueOnce(account).mockResolvedValueOnce(null);
 
     await expect(convertOrbes({ guildId: 'g', userId: 'u', source: 'green', amount: 10 }))

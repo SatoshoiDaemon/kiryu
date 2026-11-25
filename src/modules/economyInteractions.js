@@ -3,16 +3,19 @@ const {
   StringSelectMenuBuilder, TextInputBuilder, TextInputStyle,
 } = require('discord.js');
 const { isAuthorized } = require('./permissions');
+const { EconomyItem } = require('../database');
 const {
-  getAccount, buyItem, getStoreItem, listInventory, useInventoryItem, bankTransfer,
+  getAccount, getSettings, buyItem, getStoreItem, listInventory, useInventoryItem, bankTransfer,
   convertOrbes, getClaimableRules, claimCollectRules, deleteCatalogItem, getStorePage,
 } = require('./economyService');
 const { editCatalogItem } = require('./economyAdminService');
 const { ORBS, ORB_TYPES, EconomyError, orbConversion, formatFragments } = require('./economyUtils');
 const {
-  basicContainer, payload, respond, storeContainer, inventoryContainer, orbBalanceText, walletContainer,
+  basicContainer, payload, respond, storeContainer, storeItemContainer, inventoryContainer, inventoryDetailContainer, orbBalanceText, walletContainer,
   collectContainer, orbsContainer,
 } = require('./economyViews');
+const { followUpV2, replyV2 } = require('./components');
+const { say } = require('./personality');
 
 const STORE_PAGE_SIZE = 3;
 const INVENTORY_PAGE_SIZE = 3;
@@ -37,6 +40,10 @@ function interactionUpdate(container) {
   return { components: [container], allowedMentions: { parse: [] } };
 }
 
+function updateInteraction(interaction, data) {
+  return interaction.deferred ? interaction.editReply(data) : interaction.update(data);
+}
+
 function verifyOwner(interaction, ownerId) {
   if (interaction.user.id === ownerId) return true;
   throw new EconomyError('Este componente foi aberto por outra pessoa. Use seu próprio comando para continuar.');
@@ -56,10 +63,11 @@ function getModalInput(customId, label, placeholder = 'Ex.: 100') {
     ));
 }
 
-function field(customId, label, { required = true, paragraph = false, placeholder = '' } = {}) {
+function field(customId, label, { required = true, paragraph = false, placeholder = '', value = null, maxLength = 100 } = {}) {
   const input = new TextInputBuilder().setCustomId(customId).setLabel(label).setStyle(paragraph ? TextInputStyle.Paragraph : TextInputStyle.Short).setRequired(required);
   if (placeholder) input.setPlaceholder(placeholder);
-  input.setMaxLength(paragraph ? 1000 : 100);
+  input.setMaxLength(maxLength);
+  if (value != null && String(value) !== '') input.setValue(String(value).slice(0, maxLength));
   return input;
 }
 
@@ -70,44 +78,60 @@ function itemWizardContainer(actorId, sku) {
     ['inventory', 'Inventário e entrega'],
     ['action', 'Ação segura'],
   ].map(([section, label]) => customButton('econ:admin:itemmodal:' + actorId + ':' + sku + ':' + section, label, ButtonStyle.Primary));
-  return basicContainer('# Configurar item · `' + sku + '`\nEdite cada grupo em uma etapa. As alterações ficam disponíveis imediatamente depois de salvar.\n\n**Preço e estoque:** valor, categoria de moeda e limite de unidades.\n**Disponibilidade:** datas de início e encerramento.\n**Inventário e entrega:** visibilidade, acúmulo, uso e consumo.\n**Ação segura:** nenhum efeito ou concessão validada de Fragmentos/Orbes.', [new ActionRowBuilder().addComponents(buttons)], 0x8B0000);
+  buttons.push(customButton('econ:admin:itemmodal:' + actorId + ':' + sku + ':details', 'Nome, descrição e compra', ButtonStyle.Secondary));
+  buttons.push(customButton('econ:admin:itemmodal:' + actorId + ':' + sku + ':choices', 'Opções de compra', ButtonStyle.Secondary));
+  return basicContainer('# Configurar item\nEdite cada grupo em etapas. As alterações ficam disponíveis imediatamente depois de salvar.\n\n**Preço e estoque:** valor, moeda e limite de unidades.\n**Disponibilidade:** datas de início e encerramento.\n**Inventário e entrega:** visibilidade, acúmulo, uso e consumo.\n**Ação segura:** efeito de uso e concessões.\n**Detalhes:** nome, texto, ícone, arte e quantidade por compra.\n**Opções:** variantes oferecidas ao comprador.', [new ActionRowBuilder().addComponents(buttons.slice(0, 4)), new ActionRowBuilder().addComponents(buttons.slice(4))], 0x8B0000);
 }
 
-function itemEditModal(actorId, sku, section) {
+function itemEditModal(actorId, sku, section, item = {}) {
   const customId = 'econ:modal:adminitem:' + actorId + ':' + sku + ':' + section;
   const modal = new ModalBuilder().setCustomId(customId);
   let fields;
   if (section === 'price') {
     modal.setTitle('Preço e estoque');
     fields = [
-      field('price', 'Preço unitário inteiro', { placeholder: 'Ex.: 500' }),
-      field('currency', 'Moeda: fragmentos ou orbes', { placeholder: 'fragmentos' }),
-      field('orbType', 'Categoria Orbe', { required: false, placeholder: 'verde' }),
-      field('stock', 'Estoque inteiro; -1 ilimitado', { placeholder: '-1' }),
+      field('price', 'Preço unitário inteiro', { placeholder: 'Ex.: 500', value: item.price }),
+      field('currency', 'Moeda: fragmentos ou orbes', { placeholder: 'fragmentos', value: item.currency === 'orbs' ? 'orbes' : 'fragmentos' }),
+      field('orbType', 'Categoria Orbe', { required: false, placeholder: 'verde', value: item.orbType || '' }),
+      field('stock', 'Estoque inteiro; -1 ilimitado', { placeholder: '-1', value: item.stock == null ? '-1' : item.stock }),
     ];
   } else if (section === 'availability') {
     modal.setTitle('Disponibilidade do item');
     fields = [
-      field('start', 'Início ISO 8601 (vazio remove)', { required: false, placeholder: '2026-11-06T18:00:00Z' }),
-      field('end', 'Fim ISO 8601 (vazio remove)', { required: false, placeholder: '2026-12-01T00:00:00Z' }),
+      field('start', 'Início ISO 8601 (vazio remove)', { required: false, placeholder: '2026-11-06T18:00:00Z', value: item.availableFrom ? new Date(item.availableFrom).toISOString() : '' }),
+      field('end', 'Fim ISO 8601 (vazio remove)', { required: false, placeholder: '2026-12-01T00:00:00Z', value: item.availableUntil ? new Date(item.availableUntil).toISOString() : '' }),
     ];
   } else if (section === 'inventory') {
     modal.setTitle('Inventário e entrega');
     fields = [
-      field('inventoryVisible', 'Aparece no inventário: sim ou nao', { placeholder: 'sim' }),
-      field('stackable', 'Acumulável: sim ou nao', { placeholder: 'sim' }),
-      field('usable', 'Utilizável: sim ou nao', { placeholder: 'nao' }),
-      field('consume', 'Consome ao usar: sim ou nao', { placeholder: 'sim' }),
-      field('delivery', 'Entrega: inventario ou imediata', { placeholder: 'inventario' }),
+      field('inventoryVisible', 'Aparece no inventário: sim ou nao', { placeholder: 'sim', value: item.inventoryVisible ? 'sim' : 'nao' }),
+      field('stackable', 'Acumulável: sim ou nao', { placeholder: 'sim', value: item.stackable ? 'sim' : 'nao' }),
+      field('usable', 'Utilizável: sim ou nao', { placeholder: 'nao', value: item.usable ? 'sim' : 'nao' }),
+      field('consume', 'Consome ao usar: sim ou nao', { placeholder: 'sim', value: item.consumeOnUse ? 'sim' : 'nao' }),
+      field('delivery', 'Entrega: inventario ou imediata', { placeholder: 'inventario', value: item.delivery === 'immediate' ? 'imediata' : 'inventario' }),
     ];
+  } else if (section === 'details') {
+    modal.setTitle('Detalhes do item');
+    fields = [
+      field('name', 'Nome exibido', { placeholder: item.name || 'Nome do item', value: item.name, maxLength: 80 }),
+      field('description', 'Descrição', { required: false, paragraph: true, placeholder: item.description || 'Descrição do item', value: item.description, maxLength: 1000 }),
+      field('emoji', 'Emoji', { placeholder: item.emoji || '📦', value: item.emoji, maxLength: 64 }),
+      field('thumbnailUrl', 'Arte HTTPS (vazio remove)', { required: false, placeholder: item.thumbnailUrl || 'https://...', value: item.thumbnailUrl, maxLength: 500 }),
+      field('purchaseQuantity', 'Unidades entregues por compra', { placeholder: String(item.purchaseQuantity || 1), value: item.purchaseQuantity || 1, maxLength: 14 }),
+    ];
+  } else if (section === 'choices') {
+    modal.setTitle('Opções de compra');
+    fields = [field('purchaseChoices', 'JSON: [{"value":"a","label":"Opção A"}]', {
+      required: false, paragraph: true, placeholder: '[]', value: JSON.stringify(item.purchaseChoices || []), maxLength: 1000,
+    })];
   } else {
     modal.setTitle('Ação automática segura');
     fields = [
-      field('action', 'Ação: nenhuma, fragmentos ou orbe', { placeholder: 'nenhuma' }),
-      field('amount', 'Quantidade inteira; 0 para nenhuma', { placeholder: '0' }),
-      field('orbType', 'Categoria Orbe', { required: false, placeholder: 'verde' }),
-      field('effect', 'Descrição do efeito (opcional)', { required: false, paragraph: true }),
-      field('useMessage', 'Mensagem ao utilizar (opcional)', { required: false, paragraph: true }),
+      field('action', 'Ação: nenhuma, fragmentos ou orbe', { placeholder: 'nenhuma', value: item.action === 'grant_fragments' ? 'fragmentos' : item.action === 'grant_orb' ? 'orbe' : 'nenhuma' }),
+      field('amount', 'Quantidade inteira; 0 para nenhuma', { placeholder: '0', value: item.actionAmount || 0 }),
+      field('orbType', 'Categoria Orbe', { required: false, placeholder: 'verde', value: item.actionOrbType || '' }),
+      field('effect', 'Descrição do efeito (opcional)', { required: false, paragraph: true, value: item.effectDescription || '' }),
+      field('useMessage', 'Mensagem ao utilizar (opcional)', { required: false, paragraph: true, value: item.useMessage || '' }),
     ];
   }
   modal.addComponents(...fields.map((input) => new ActionRowBuilder().addComponents(input)));
@@ -152,17 +176,17 @@ function parseModalAmount(interaction) {
 
 async function showStore(interaction, currency, page = 0, update = false) {
   const result = await getStorePage(interaction.guildId, currency, { page: Math.max(0, page), pageSize: STORE_PAGE_SIZE });
-  const container = storeContainer(result.items, currency, result.page, result.pages);
-  if (update) return interaction.update(interactionUpdate(container));
+  const container = storeContainer(result.items, currency, result.page, result.pages, new Date(), interaction.user.id);
+  if (update) return updateInteraction(interaction, interactionUpdate(container));
   return respond(interaction, payload(container));
 }
 
-async function showInventory(interaction, ownerId, userId, page = 0, update = false, ephemeral = false) {
-  const data = await listInventory(interaction.guildId, userId, { page, pageSize: INVENTORY_PAGE_SIZE });
+async function showInventory(interaction, ownerId, userId, page = 0, update = false, ephemeral = false, filter = 'all') {
+  const data = await listInventory(interaction.guildId, userId, { page, pageSize: INVENTORY_PAGE_SIZE, filter });
   const currentPage = Math.min(Math.max(0, page), data.pages - 1);
   data.page = currentPage;
-  const container = inventoryContainer(data, userId, ownerId, currentPage);
-  if (update) return interaction.update(interactionUpdate(container));
+  const container = inventoryContainer(data, userId, ownerId, currentPage, filter);
+  if (update) return updateInteraction(interaction, interactionUpdate(container));
   return respond(interaction, payload(container, ephemeral));
 }
 
@@ -185,13 +209,22 @@ async function claimSelected(interaction, ownerId, selectedRuleId, stack) {
   if (stack && !selected.stackable) throw new EconomyError('Essa recompensa não permite coleta conjunta.');
   const result = await claimCollectRules({ guildId: interaction.guildId, userId: interaction.user.id, roleIds, ruleIds: rules.map((rule) => String(rule._id)) });
   const orbSummary = Object.entries(result.orbDelta).map(([type, amount]) => amount + ' ' + ORBS[type].emoji).join(' · ');
-  const summary = '## Recompensa coletada\nVocê recebeu **' + formatFragments(result.fragments) + '**' + (orbSummary ? ' e **' + orbSummary + '**' : '') + '.\n**Regras:** ' + result.rules.map((rule) => rule.name).join(', ');
-  return interaction.update(interactionUpdate(basicContainer(summary, [], 0x008C52)));
+    const summary = '## Recompensa coletada\n' + say('daily') + '\n\nVocê recebeu **' + formatFragments(result.fragments) + '**' + (orbSummary ? ' e **' + orbSummary + '**' : '') + '.\n**Regras:** ' + result.rules.map((rule) => rule.name).join(', ');
+  return updateInteraction(interaction, interactionUpdate(basicContainer(summary, [], 0x008C52)));
 }
 
 async function handleEconomyInteraction(interaction) {
   const customId = interaction.customId || '';
   if (!customId.startsWith('econ:')) return false;
+  const immediateUpdate = (interaction.isButton() && (
+    customId.startsWith('econ:store:page:') || customId.startsWith('econ:store:detail:') || customId.startsWith('econ:store:confirm:') || customId.startsWith('econ:store:back:') || customId.startsWith('econ:inventory:page:') || customId.startsWith('econ:inventory:detail:') || customId.startsWith('econ:inventory:back:') ||
+    customId.startsWith('econ:orbs:confirm:') || customId.startsWith('econ:orbs:cancel:') ||
+    customId.startsWith('econ:collect:') || customId.startsWith('econ:admin:itemwizard:') ||
+    customId.startsWith('econ:admin:itemdelete:')
+  )) || (interaction.isStringSelectMenu() && (
+    customId.startsWith('econ:collect:select:') || customId.startsWith('econ:store:choice:') || customId.startsWith('econ:store:quantity:') || customId.startsWith('econ:store:variant:') || customId.startsWith('econ:inventory:filter:')
+  ));
+  if (immediateUpdate && !interaction.deferred && !interaction.replied && typeof interaction.deferUpdate === 'function') await interaction.deferUpdate();
   try {
     const parts = customId.split(':');
 
@@ -199,6 +232,29 @@ async function handleEconomyInteraction(interaction) {
       if (parts[1] === 'store' && parts[2] === 'page') {
         const currency = parts[3] === 'orbs' ? 'orbs' : 'fragments';
         return showStore(interaction, currency, Number(parts[4]) || 0, true);
+      }
+      if (parts[1] === 'store' && parts[2] === 'detail') {
+        const [, , , ownerId, itemId, currency, page] = parts;
+        verifyOwner(interaction, ownerId);
+        const item = await getStoreItem(interaction.guildId, itemId, currency);
+        return updateInteraction(interaction, interactionUpdate(storeItemContainer(item, currency, Number(page) || 0, ownerId)));
+      }
+      if (parts[1] === 'store' && parts[2] === 'back') {
+        verifyOwner(interaction, parts[3]);
+        return showStore(interaction, parts[4], Number(parts[5]) || 0, true);
+      }
+      if (parts[1] === 'store' && parts[2] === 'confirm') {
+        const [, , , ownerId, itemId, currency, page, unitsValue, choiceIndex] = parts;
+        verifyOwner(interaction, ownerId);
+        const item = await getStoreItem(interaction.guildId, itemId, currency);
+        const purchaseChoice = choiceIndex === 'x' ? null : item.purchaseChoices?.[Number(choiceIndex)]?.value;
+        if (choiceIndex !== 'x' && !purchaseChoice) throw new EconomyError('Essa opção não está mais disponível. Atualize a vitrine.');
+        const result = await buyItem({ guildId: interaction.guildId, userId: ownerId, itemId, purchaseChoice, units: Number(unitsValue), interactionId: interaction.id });
+        if (result.duplicate) return replyText(interaction, 'Essa compra já foi registrada; seus Fragmentos não foram cobrados novamente.');
+        await showStore(interaction, currency, Number(page) || 0, true);
+        const price = result.item.currency === 'fragments' ? formatFragments(result.cost) : result.cost.toLocaleString('pt-BR') + ' ' + ORBS[result.item.orbType].sigil + ' Orbes ' + ORBS[result.item.orbType].label;
+        const delivery = result.deliveredToInventory ? 'O item já está no seu inventário.' : 'A entrega imediata foi processada.';
+        return replyText(interaction, '# Compra confirmada\n' + say('purchase') + '\n\n**' + result.item.emoji + ' ' + result.item.name + '** × ' + result.quantity.toLocaleString('pt-BR') + '\n**Total cobrado:** ' + price + '\n' + delivery);
       }
       if (parts[1] === 'store' && parts[2] === 'buy') {
         const itemId = parts[3];
@@ -228,17 +284,32 @@ async function handleEconomyInteraction(interaction) {
       if (parts[1] === 'inventory' && parts[2] === 'page') {
         const ownerId = parts[3];
         verifyOwner(interaction, ownerId);
-        return showInventory(interaction, ownerId, parts[4], Number(parts[5]) || 0, true);
+        const filter = parts[7] || 'all';
+        return showInventory(interaction, ownerId, parts[4], Number(parts[5]) || 0, true, false, filter);
+      }
+      if (parts[1] === 'inventory' && parts[2] === 'detail') {
+        const [, , , ownerId, userId, inventoryId, page, filter = 'all'] = parts;
+        verifyOwner(interaction, ownerId);
+        const data = await listInventory(interaction.guildId, userId, { page: Number(page) || 0, pageSize: INVENTORY_PAGE_SIZE, filter });
+        const entry = data.items.find((candidate) => String(candidate._id) === inventoryId);
+        if (!entry) throw new EconomyError('Esse item não aparece mais nesta página. Atualize o inventário.');
+        return updateInteraction(interaction, interactionUpdate(inventoryDetailContainer(entry, ownerId, userId, Number(page) || 0, filter)));
+      }
+      if (parts[1] === 'inventory' && parts[2] === 'back') {
+        const [, , , ownerId, userId, page, filter = 'all'] = parts;
+        verifyOwner(interaction, ownerId);
+        return showInventory(interaction, ownerId, userId, Number(page) || 0, true, false, filter);
       }
       if (parts[1] === 'inventory' && parts[2] === 'use') {
         const ownerId = parts[3];
         verifyOwner(interaction, ownerId);
-        const sku = parts[4];
+        const inventoryId = parts[4];
         const page = Number(parts[5]) || 0;
-        const result = await useInventoryItem({ guildId: interaction.guildId, userId: interaction.user.id, sku });
+        const filter = parts[6] || 'all';
+        const result = await useInventoryItem({ guildId: interaction.guildId, userId: interaction.user.id, inventoryId });
         const effect = result.item.useMessage || result.item.effectDescription || 'O item foi utilizado. Seu efeito pode ser interpretado dentro do RP.';
         const consumption = result.consumed ? 'O item foi consumido.' : 'O item permanece no inventário.';
-        await showInventory(interaction, ownerId, ownerId, page, true);
+        await showInventory(interaction, ownerId, ownerId, page, true, false, filter);
         return replyText(interaction, '## ' + result.item.emoji + ' ' + result.item.name + '\n' + effect + '\n' + consumption);
       }
       if (parts[1] === 'wallet' && ['deposit', 'withdraw'].includes(parts[2])) {
@@ -254,7 +325,8 @@ async function handleEconomyInteraction(interaction) {
         const ownerId = parts[3];
         verifyOwner(interaction, ownerId);
         const source = parts[4];
-        return interaction.showModal(getModalInput('econ:modal:orbs:' + ownerId + ':' + source, 'Converter Orbes', 'Múltiplo de 10'));
+        const settings = await getSettings(interaction.guildId);
+        return interaction.showModal(getModalInput('econ:modal:orbs:' + ownerId + ':' + source, 'Converter Orbes', 'Múltiplo de ' + (settings.orbs?.conversionRate || 10)));
       }
       if (parts[1] === 'orbs' && parts[2] === 'confirm') {
         const ownerId = parts[3];
@@ -263,12 +335,12 @@ async function handleEconomyInteraction(interaction) {
         const amount = Number(parts[5]);
         const { conversion, account } = await convertOrbes({ guildId: interaction.guildId, userId: interaction.user.id, source, amount });
         const notice = '# Conversão concluída\n' + amount.toLocaleString('pt-BR') + ' ' + ORBS[source].emoji + ' foram convertidas em ' + conversion.result.toLocaleString('pt-BR') + ' ' + ORBS[conversion.destination].emoji + '.';
-        return interaction.update(interactionUpdate(orbsContainer(account, ownerId, notice)));
+        return updateInteraction(interaction, interactionUpdate(orbsContainer(account, ownerId, notice)));
       }
       if (parts[1] === 'orbs' && parts[2] === 'cancel') {
         verifyOwner(interaction, parts[3]);
         const account = await getAccount(interaction.guildId, interaction.user.id);
-        return interaction.update(interactionUpdate(orbsContainer(account, parts[3], 'Conversão cancelada. Nenhum saldo foi alterado.')));
+        return updateInteraction(interaction, interactionUpdate(orbsContainer(account, parts[3], 'Conversão cancelada. Nenhum saldo foi alterado.')));
       }
       if (parts[1] === 'collect' && ['claim', 'stack'].includes(parts[2])) {
         return claimSelected(interaction, parts[3], parts[4], parts[2] === 'stack');
@@ -277,48 +349,70 @@ async function handleEconomyInteraction(interaction) {
         const ownerId = parts[3];
         verifyOwner(interaction, ownerId);
         const rules = await getClaimableRules(interaction.guildId, getRoleIds(interaction.member), interaction.user.id);
-        return interaction.update(interactionUpdate(collectContainer(rules, ownerId, Number(parts[4]) || 0)));
+        return updateInteraction(interaction, interactionUpdate(collectContainer(rules, ownerId, Number(parts[4]) || 0)));
       }
       if (parts[1] === 'admin' && parts[2] === 'itemwizard') {
         const actorId = parts[3];
         if (interaction.user.id !== actorId || !(await isAuthorized(interaction.member, interaction.user.id, interaction.guildId))) throw new EconomyError('Você não pode editar este item.');
-        return interaction.update(interactionUpdate(itemWizardContainer(actorId, parts[4])));
+        return updateInteraction(interaction, interactionUpdate(itemWizardContainer(actorId, parts[4])));
       }
       if (parts[1] === 'admin' && parts[2] === 'itemmodal') {
         const actorId = parts[3];
         if (interaction.user.id !== actorId || !(await isAuthorized(interaction.member, interaction.user.id, interaction.guildId))) throw new EconomyError('Você não pode editar este item.');
-        return interaction.showModal(itemEditModal(actorId, parts[4], parts[5]));
+        const item = await EconomyItem.findOne({ guildId: interaction.guildId, sku: parts[4], deletedAt: null }).lean();
+        if (!item) throw new EconomyError('Este item não está mais no catálogo.');
+        return interaction.showModal(itemEditModal(actorId, parts[4], parts[5], item));
       }
       if (parts[1] === 'admin' && parts[2] === 'itemdelete') {
         const actorId = parts[3];
         const sku = parts.slice(4).join(':');
         if (interaction.user.id !== actorId || !(await isAuthorized(interaction.member, interaction.user.id, interaction.guildId))) throw new EconomyError('Você não pode confirmar esta exclusão.');
         const item = await deleteCatalogItem({ guildId: interaction.guildId, actorId, sku });
-        return interaction.update(interactionUpdate(basicContainer('O item **' + item.name + '** foi removido da loja. Os itens já adquiridos e o histórico foram preservados.', [], 0x8B0000)));
+        return updateInteraction(interaction, interactionUpdate(basicContainer('O item **' + item.name + '** foi removido da loja. Os itens já adquiridos e o histórico foram preservados.', [], 0x8B0000)));
       }
       if (parts[1] === 'admin' && parts[2] === 'itemdeletecancel') {
         if (interaction.user.id !== parts[3] || !(await isAuthorized(interaction.member, interaction.user.id, interaction.guildId))) throw new EconomyError('Você não pode cancelar esta operação.');
-        return interaction.update(interactionUpdate(basicContainer('Exclusão cancelada. O catálogo não foi alterado.', [], 0x8B0000)));
+        return updateInteraction(interaction, interactionUpdate(basicContainer('Exclusão cancelada. O catálogo não foi alterado.', [], 0x8B0000)));
       }
     }
 
     if (interaction.isStringSelectMenu()) {
+      if (parts[1] === 'store' && parts[2] === 'quantity') {
+        const [, , , ownerId, itemId, currency, page] = parts;
+        verifyOwner(interaction, ownerId);
+        const item = await getStoreItem(interaction.guildId, itemId, currency);
+        return updateInteraction(interaction, interactionUpdate(storeItemContainer(item, currency, Number(page) || 0, ownerId, Number(interaction.values[0]))));
+      }
+      if (parts[1] === 'inventory' && parts[2] === 'filter') {
+        const [, , , ownerId, userId] = parts;
+        verifyOwner(interaction, ownerId);
+        return showInventory(interaction, ownerId, userId, 0, true, false, interaction.values[0]);
+      }
+      if (parts[1] === 'store' && parts[2] === 'variant') {
+        const [, , , ownerId, itemId, currency, page, units] = parts;
+        verifyOwner(interaction, ownerId);
+        const item = await getStoreItem(interaction.guildId, itemId, currency);
+        const selectedChoice = item.purchaseChoices?.find((choice) => choice.value === interaction.values[0]);
+        if (!selectedChoice) throw new EconomyError('Essa opção não está mais disponível. Atualize a vitrine.');
+        return updateInteraction(interaction, interactionUpdate(storeItemContainer(item, currency, Number(page) || 0, ownerId, Number(units) || 1, selectedChoice)));
+      }
       if (parts[1] === 'store' && parts[2] === 'choice') {
         const ownerId = parts[3];
         verifyOwner(interaction, ownerId);
         const itemId = parts[4];
         const result = await buyItem({ guildId: interaction.guildId, userId: interaction.user.id, itemId, purchaseChoice: interaction.values[0], interactionId: interaction.id });
-        if (result.duplicate) return interaction.update(interactionUpdate(basicContainer('Esta compra já foi processada.')));
+        if (result.duplicate) return updateInteraction(interaction, interactionUpdate(basicContainer('Esta compra já foi processada.')));
         const payment = result.item.currency === 'fragments' ? formatFragments(result.cost) : result.cost.toLocaleString('pt-BR') + ' ' + ORBS[result.item.orbType].emoji;
         const delivery = result.deliveredToInventory ? 'O item foi adicionado ao seu inventário.' : 'A entrega configurada foi processada imediatamente.';
         const choice = result.selectedChoice?.label ? '\n**Escolha:** ' + result.selectedChoice.label : '';
-        return interaction.update(interactionUpdate(basicContainer('## Compra concluída\nVocê comprou **' + result.item.emoji + ' ' + result.item.name + '** × ' + result.quantity.toLocaleString('pt-BR') + ' por ' + payment + '.' + choice + '\n' + delivery)));
+        return updateInteraction(interaction, interactionUpdate(basicContainer('## Compra concluída\nVocê comprou **' + result.item.emoji + ' ' + result.item.name + '** × ' + result.quantity.toLocaleString('pt-BR') + ' por ' + payment + '.' + choice + '\n' + delivery)));
       }
       if (parts[1] === 'orbs' && parts[2] === 'source') {
         verifyOwner(interaction, parts[3]);
         const source = interaction.values[0];
         if (!ORB_TYPES.includes(source) || source === 'gold') throw new RangeError('Selecione uma categoria válida para conversão.');
-        return interaction.showModal(getModalInput('econ:modal:orbs:' + parts[3] + ':' + source, 'Converter Orbes ' + ORBS[source].label, 'Múltiplo de 10'));
+        const settings = await getSettings(interaction.guildId);
+        return interaction.showModal(getModalInput('econ:modal:orbs:' + parts[3] + ':' + source, 'Converter Orbes ' + ORBS[source].label, 'Múltiplo de ' + (settings.orbs?.conversionRate || 10)));
       }
       if (parts[1] === 'collect' && parts[2] === 'select') {
         const ownerId = parts[3];
@@ -326,7 +420,7 @@ async function handleEconomyInteraction(interaction) {
         const rule = await getClaimableRules(interaction.guildId, getRoleIds(interaction.member), interaction.user.id)
           .then((rules) => rules.find((entry) => String(entry._id) === interaction.values[0]));
         if (!rule) throw new EconomyError('Essa recompensa não está mais disponível. Execute /coletar para atualizar a lista.');
-        return interaction.update(interactionUpdate(collectionSelectionContainer(rule, ownerId)));
+        return updateInteraction(interaction, interactionUpdate(collectionSelectionContainer(rule, ownerId)));
       }
     }
 
@@ -373,6 +467,20 @@ async function handleEconomyInteraction(interaction) {
           changes.actionOrbType = orbType || null;
           changes.effectDescription = value('effect');
           changes.useMessage = value('useMessage');
+        } else if (section === 'details') {
+          changes.name = value('name');
+          changes.description = value('description');
+          changes.emoji = value('emoji');
+          changes.thumbnailUrl = value('thumbnailUrl');
+          changes.purchaseQuantity = parseWholeNumber(value('purchaseQuantity'), 'Unidades por compra', { min: 1, max: 1000000 });
+        } else if (section === 'choices') {
+          const raw = value('purchaseChoices');
+          let choices;
+          try { choices = raw ? JSON.parse(raw) : []; } catch { throw new RangeError('As opções precisam estar em um JSON válido.'); }
+          if (!Array.isArray(choices) || choices.length > 25 || choices.some((choice) => !choice || typeof choice.value !== 'string' || typeof choice.label !== 'string')) {
+            throw new RangeError('Informe uma lista JSON de até 25 opções, cada uma com value e label.');
+          }
+          changes.purchaseChoices = choices.map((choice) => ({ value: choice.value, label: choice.label, description: choice.description || '' }));
         } else {
           throw new RangeError('Etapa de configuração inválida.');
         }
@@ -396,7 +504,8 @@ async function handleEconomyInteraction(interaction) {
         verifyOwner(interaction, ownerId);
         const source = parts[4];
         const amount = parseModalAmount(interaction);
-        const conversion = orbConversion(source, amount);
+        const settings = await getSettings(interaction.guildId);
+        const conversion = orbConversion(source, amount, settings.orbs?.conversionRate || 10);
         const account = await getAccount(interaction.guildId, interaction.user.id);
         if (Number(account.orbs?.[source] || 0) < amount) throw new EconomyError('Você não possui Orbes suficientes nessa categoria.');
         const confirm = customButton('econ:orbs:confirm:' + ownerId + ':' + source + ':' + amount, 'Confirmar conversão', ButtonStyle.Success);
@@ -410,7 +519,8 @@ async function handleEconomyInteraction(interaction) {
 
     return false;
   } catch (error) {
-    const message = error.publicMessage || (error instanceof RangeError ? error.message : 'Não foi possível concluir esta ação. Tente novamente.');
+    const detail = error.publicMessage || (error instanceof RangeError ? error.message : '');
+    const message = (/saldo|fragmentos|carteira|limite/i.test(detail) ? say('insufficient') : say('error')) + (detail ? '\n\n' + detail : '');
     if (!(error instanceof EconomyError) && !(error instanceof RangeError)) {
       require('../logger').error('Falha em componente de economia (' + (error?.code || error?.name || 'erro') + ').');
     }
@@ -419,11 +529,11 @@ async function handleEconomyInteraction(interaction) {
       await showStore(interaction, currency, Number(page) || 0, true).catch(() => {});
     }
     if (interaction.isButton?.() && customId.startsWith('econ:inventory:use:') && !interaction.replied) {
-      const [, , , ownerId, , page] = customId.split(':');
-      await showInventory(interaction, ownerId, ownerId, Number(page) || 0, true).catch(() => {});
+      const [, , , ownerId, , page, filter = 'all'] = customId.split(':');
+      await showInventory(interaction, ownerId, ownerId, Number(page) || 0, true, false, filter).catch(() => {});
     }
-    if (interaction.deferred || interaction.replied) await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral }).catch(() => {});
-    else await interaction.reply({ content: message, flags: MessageFlags.Ephemeral }).catch(() => {});
+    if (interaction.deferred || interaction.replied) await followUpV2(interaction, message).catch(() => {});
+    else await replyV2(interaction, message, { ephemeral: true }).catch(() => {});
     return true;
   }
 }
