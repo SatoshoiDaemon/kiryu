@@ -4,7 +4,10 @@ const {
   ButtonStyle,
   ChannelSelectMenuBuilder,
   ChannelType,
+  ContainerBuilder,
   PermissionFlagsBits,
+  MediaGalleryBuilder,
+  MediaGalleryItemBuilder,
   ModalBuilder,
   RoleSelectMenuBuilder,
   StringSelectMenuBuilder,
@@ -17,7 +20,7 @@ const config = require('../config');
 const { getGuildConfig } = require('./xpService');
 const { getSettings } = require('./economyService');
 const { configureWork, configureDaily, configureOrbConversion, configureCasino } = require('./economyAdminService');
-const { EconomyItem, EconomyCollectRule, MemberProfile, BadgeDefinition } = require('../database');
+const { EconomyItem, EconomyCollectRule, MemberProfile, BadgeDefinition, BlobObject } = require('../database');
 const { createCatalogItem, editCatalogItem, createCollectRule, editCollectRule, removeCollectRule } = require('./economyAdminService');
 const { deleteCatalogItem } = require('./economyService');
 const { normalizeTriggerText } = require('./triggers');
@@ -25,8 +28,12 @@ const { createContainer, replyV2, followUpV2 } = require('./components');
 const { ORBS, ORB_TYPES } = require('./economyUtils');
 const { PALETTES, applyPalette } = require('./appearance');
 const { isAuthorized } = require('./permissions');
-const { BADGE_CATEGORIES } = require('./profileCatalog');
+const { BADGE_CATEGORIES, BADGE_BY_ID } = require('./profileCatalog');
 const { handleAIConfigInteraction, showAIHome, showAIPersonality, importPromptAttachment } = require('./aiConfigPanel');
+const blobStorage = require('./blobStorage');
+
+const STORAGE_CATEGORIES = ['all', 'profile', 'badge', 'frame', 'cosmetic', 'product', 'casino', 'banner', 'divider', 'design-system', 'trigger', 'other'];
+const DESIGN_SYSTEM_NAMES = ['crest', 'xp', 'fragments', 'orbs', 'store', 'casino', 'profile', 'admin', 'orb-red', 'orb-orange', 'orb-green', 'orb-gold', 'orb-blue', 'orb-black', 'divider'];
 
 function button(customId, label, style = ButtonStyle.Secondary) {
   return new ButtonBuilder().setCustomId(customId).setLabel(label).setStyle(style);
@@ -52,9 +59,14 @@ function navRow(interaction = null) {
     { label: 'Aparência', value: 'appearance', description: 'Paleta visual do servidor' },
     { label: 'Kiryu Intelligence', value: 'ai', description: 'Gateway de IA, personalidade, acesso e utilização' },
     { label: 'Badges especiais', value: 'badges', description: 'Criar, editar e atribuir badges da staff' },
+    { label: 'Armazenamento', value: 'storage', description: 'Objetos Blob, referências e consumo' },
+    { label: 'Ferramentas utilitárias', value: 'utilities', description: 'Lembretes, enquetes, AFK e limites' },
+    { label: 'Moderação e registros', value: 'moderation', description: 'Permissões e canal de logs' },
+    { label: 'Sorteios', value: 'giveaways', description: 'Limites, ativação e registros' },
+    { label: 'Templates de mensagens', value: 'templates', description: 'Mensagens reutilizáveis salvas no servidor' },
   ];
   const visibleSections = interaction && interaction.user.id !== config.ownerId
-    ? sections.filter((section) => section.value === 'badges')
+    ? sections.filter((section) => ['badges', 'storage', 'utilities', 'moderation', 'giveaways', 'templates'].includes(section.value))
     : sections;
   return row(new StringSelectMenuBuilder()
     .setCustomId('config:nav')
@@ -172,7 +184,7 @@ async function showBadges(interaction, update = true, page = 0) {
   ]);
   const badges = fetched.slice(0, 25);
   const summary = badges.length
-    ? badges.map((badge) => '• ' + badge.symbol + ' **' + badge.name + '** · ' + (BADGE_CATEGORIES.find((category) => category.value === badge.category)?.label || badge.category)).join('\n')
+    ? badges.map((badge) => '• ' + badge.symbol + ' **' + badge.name + '** · `' + badge._id + '` · ' + (BADGE_CATEGORIES.find((category) => category.value === badge.category)?.label || badge.category) + (badge.assetBlobId ? ' · imagem' : '')).join('\n')
     : 'Nenhuma badge especial criada.';
   const categorySelect = new StringSelectMenuBuilder().setCustomId('config:badges:create:category')
     .setPlaceholder('Criar badge especial · escolher categoria')
@@ -197,7 +209,7 @@ async function showBadgeDetail(interaction, badgeId, update = true) {
     button('config:badges:delete:' + badgeId, 'Remover badge', ButtonStyle.Danger),
   ), row(new UserSelectMenuBuilder().setCustomId('config:badges:assign:' + badgeId).setPlaceholder('Atribuir a membros').setMinValues(1).setMaxValues(25)),
   row(new UserSelectMenuBuilder().setCustomId('config:badges:remove:' + badgeId).setPlaceholder('Remover de membros').setMinValues(1).setMaxValues(25))];
-  return updatePanel(interaction, { components: [container('# ' + badge.symbol + ' ' + badge.name + '\n' + badge.description + '\n\n**Categoria:** ' + category + '\n**Tipo:** especial, atribuída pela staff.', rows)], allowedMentions: { parse: [] } });
+  return updatePanel(interaction, { components: [container('# ' + badge.symbol + ' ' + badge.name + '\n' + badge.description + '\n\n**ID:** `' + badge._id + '`\n**Categoria:** ' + category + '\n**Arte:** ' + (badge.assetBlobId ? 'armazenada no Blob' : 'símbolo vetorial') + '\n**Tipo:** especial, atribuída pela staff.', rows)], allowedMentions: { parse: [] } });
 }
 
 async function showPermissions(interaction, update = true) {
@@ -226,7 +238,7 @@ async function showPermissions(interaction, update = true) {
 async function showTriggers(interaction, update = true) {
   const cfg = await getGuildConfig(interaction.guildId);
   const list = cfg.triggers.length
-    ? cfg.triggers.slice(0, 25).map((trigger) => '• ' + (trigger.enabled ? '✅' : '⏸️') + ' **' + trigger.text + '** · ' + trigger.responses.length + ' resposta(s)').join('\n')
+    ? cfg.triggers.slice(0, 25).map((trigger) => '• ' + (trigger.enabled ? '✅' : '⏸️') + ' **' + trigger.text + '** · `' + trigger._id + '` · ' + trigger.responses.length + ' resposta(s) · ' + (trigger.assets?.length || 0) + ' imagem(ns)').join('\n')
     : 'Nenhum gatilho cadastrado.';
   const rows = [navRow(), row(button('config:trigger:create', 'Criar gatilho', ButtonStyle.Success))];
   if (cfg.triggers.length) {
@@ -289,6 +301,98 @@ async function showAppearance(interaction, update = true) {
     .addOptions(Object.keys(PALETTES).map((value) => ({ label: labels[value], value, default: value === palette })));
   const payload = { components: [container('# Aparência · paleta do servidor\nPaleta atual: **' + labels[palette] + '**. A escolha é persistida e aplicada às interfaces do bot após salvar.', [navRow(), row(select)])], allowedMentions: { parse: [] } };
   return update ? updatePanel(interaction, payload) : interaction.editReply({ ...payload, flags: MessageFlags.IsComponentsV2 });
+}
+
+function bytes(value) {
+  const amount = Number(value || 0);
+  if (amount < 1024) return amount + ' B';
+  if (amount < 1024 ** 2) return (amount / 1024).toFixed(1) + ' KB';
+  if (amount < 1024 ** 3) return (amount / 1024 ** 2).toFixed(1) + ' MB';
+  return (amount / 1024 ** 3).toFixed(2) + ' GB';
+}
+
+async function refreshBlobAssetOverrides(guildId) {
+  const { setAssetOverrides } = require('./components');
+  const objects = await BlobObject.find({ guildId: String(guildId), deletedAt: null }).select('category name url deletedAt').lean();
+  setAssetOverrides(objects);
+}
+
+function categoryFilter(category) {
+  return row(new StringSelectMenuBuilder().setCustomId('config:storage:category').setPlaceholder('Filtrar por categoria').addOptions(STORAGE_CATEGORIES.map((value) => ({
+    label: value === 'all' ? 'Todas as categorias' : value,
+    value,
+    default: value === category,
+  }))));
+}
+
+async function showStorage(interaction, update = true, { page = 0, category = 'all' } = {}) {
+  const cfg = await getGuildConfig(interaction.guildId);
+  const [listed, localUsage] = await Promise.all([
+    blobStorage.listPage({ guildId: interaction.guildId, page, category }),
+    BlobObject.aggregate([{ $match: { guildId: String(interaction.guildId), deletedAt: null } }, { $group: { _id: null, bytes: { $sum: '$size' }, objects: { $sum: 1 }, refs: { $sum: { $size: '$references' } }, orphaned: { $sum: { $cond: [{ $eq: [{ $size: '$references' }, 0] }, 1, 0] } } } }]),
+  ]);
+  const usage = localUsage[0] || { bytes: 0, objects: 0, refs: 0, orphaned: 0 };
+  const limit = cfg.storage?.maxBytes || 0;
+  const list = listed.objects.length ? listed.objects.map((object) => '• **' + object.name + '** · `' + object._id + '` · ' + bytes(object.size) + ' · ' + object.references.length + ' referência(s)' + (object.references.length ? '' : ' · órfão')).join('\n') : 'Nenhum objeto encontrado para este filtro.';
+  let cloud = 'Conta Square Cloud: indisponível nesta consulta.';
+  try {
+    const stats = await blobStorage.getClient().stats();
+    cloud = 'Conta Square Cloud: **' + stats.usage.objects.toLocaleString('pt-BR') + '** objeto(s) · **' + bytes(stats.usage.storage) + '**.';
+  } catch { /* Local metadata remains available when the provider is down. */ }
+  const rows = [navRow(interaction), categoryFilter(category), row(
+    button('config:storage:limit', 'Limite de armazenamento', ButtonStyle.Primary),
+    button('config:storage:toggle', cfg.storage?.uploadsEnabled === false ? 'Ativar uploads' : 'Pausar uploads', cfg.storage?.uploadsEnabled === false ? ButtonStyle.Success : ButtonStyle.Secondary),
+    button('config:storage:refresh:' + page + ':' + category, 'Atualizar'),
+  )];
+  if (listed.objects.length) rows.push(row(new StringSelectMenuBuilder().setCustomId('config:storage:object:' + page + ':' + category).setPlaceholder('Abrir objeto para visualizar ou gerenciar')
+    .addOptions(listed.objects.map((object) => ({ label: String(object.name).slice(0, 100), value: object._id.slice(0, 100), description: bytes(object.size) + ' · ' + object.references.length + ' referência(s)' })))));
+  if (listed.pages > 1) rows.push(row(
+    ...(page > 0 ? [button('config:storage:page:' + (page - 1) + ':' + category, 'Página anterior')] : []),
+    ...(listed.hasNext ? [button('config:storage:page:' + (page + 1) + ':' + category, 'Próxima página')] : []),
+  ));
+  const text = '# Armazenamento · Square Cloud Blob\nUploads: **' + (cfg.storage?.uploadsEnabled === false ? 'pausados' : 'ativos') + '** · Limite local: **' + (limit ? bytes(limit) : 'sem limite adicional') + '** · arquivo máximo: **' + bytes(cfg.storage?.maxFileBytes || 8 * 1024 * 1024) + '**\n\n**Metadados deste servidor:** ' + usage.objects.toLocaleString('pt-BR') + ' objetos · ' + bytes(usage.bytes) + ' · ' + usage.refs + ' referências · ' + usage.orphaned + ' órfãos.\n' + cloud + '\n\n' + list + '\n\nEnvie uma imagem pelo comando `/config asset_file` e escolha a categoria. Objetos com referências não podem ser excluídos até que os sistemas sejam atualizados.';
+  return updatePanel(interaction, { components: [container(text, rows)], allowedMentions: { parse: [] } });
+}
+
+async function showStorageObject(interaction, objectId, page = 0, category = 'all') {
+  const object = await BlobObject.findOne({ _id: objectId, guildId: String(interaction.guildId), deletedAt: null }).lean();
+  if (!object) return showStorage(interaction, true, { page, category });
+  const refs = object.references.length ? object.references.map((ref) => '• `' + ref.system + '` · `' + ref.key + '`').join('\n') : 'Nenhuma referência · objeto órfão.';
+  const rows = [navRow(interaction), row(
+    button('config:storage:rename:' + objectId + ':' + page + ':' + category, 'Renomear asset', ButtonStyle.Primary),
+    button('config:storage:delete:' + objectId + ':' + page + ':' + category, 'Excluir objeto', ButtonStyle.Danger),
+    button('config:storage:back:' + page + ':' + category, 'Voltar'),
+  )];
+  const info = '# ' + object.name + '\nCategoria: **' + object.category + '** · arquivo `' + object.filename + '` · ' + bytes(object.size) + '\nMIME: `' + object.mimeType + '` · ID: `' + object._id + '`\nAdicionado por <@' + object.createdBy + '> em ' + new Date(object.createdAt).toLocaleString('pt-BR', { timeZone: config.timezone }) + '\n\n**Referências (' + object.references.length + ')**\n' + refs + (object.url ? '\n\nPrévia: ' + object.url : '\n\nObjeto privado; a prévia exige autorização para gerar um link temporário.');
+  const view = new ContainerBuilder().setAccentColor(config.visual.admin)
+    .addSectionComponents(require('./components').headerSection(object.name, 'Asset · ' + object.category, 'admin'))
+    .addTextDisplayComponents(new (require('discord.js').TextDisplayBuilder)().setContent(info.replace('# ' + object.name + '\n', '')));
+  if (object.url) view.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(object.url).setDescription(object.name)));
+  for (const componentRow of rows) view.addActionRowComponents(componentRow);
+  require('./components').decorateContainer(view);
+  return interaction.editReply({ components: [view], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } });
+}
+
+async function showUtilitySettings(interaction) {
+  const cfg = await getGuildConfig(interaction.guildId);
+  const utility = cfg.utilities || {};
+  return updatePanel(interaction, { components: [container('# Ferramentas utilitárias\nConfigurações permanentes de lembretes, enquetes e ausência.\n\nLembretes: ' + (utility.remindersEnabled === false ? 'desativados' : 'ativos') + ' · máximo de ' + (utility.maxRemindersPerMember || 20) + ' por membro · prazo até ' + (utility.maxReminderDays || 365) + ' dias.\nEnquetes: ' + (utility.pollsEnabled === false ? 'desativadas' : 'ativas') + '.\nAFK: ' + (utility.afkEnabled === false ? 'desativado' : 'ativo') + '.', [navRow(interaction), row(button('config:utilities:reminders', utility.remindersEnabled === false ? 'Ativar lembretes' : 'Desativar lembretes'), button('config:utilities:polls', utility.pollsEnabled === false ? 'Ativar enquetes' : 'Desativar enquetes'), button('config:utilities:afk', utility.afkEnabled === false ? 'Ativar AFK' : 'Desativar AFK')), row(button('config:utilities:limits', 'Editar limites', ButtonStyle.Primary))])], allowedMentions: { parse: [] } });
+}
+
+async function showModerationSettings(interaction) {
+  const cfg = await getGuildConfig(interaction.guildId);
+  return updatePanel(interaction, { components: [container('# Moderação e registros administrativos\nModeração: **' + (cfg.moderation?.enabled === false ? 'desativada' : 'ativa') + '**\nCanal de logs: ' + (cfg.moderation?.logChannelId ? '<#' + cfg.moderation.logChannelId + '>' : 'não configurado; registros permanecem no MongoDB') + '\nLimite de advertências: ' + (cfg.moderation?.warnThreshold || 'sem limite automático') + '.', [navRow(interaction), row(new ChannelSelectMenuBuilder().setCustomId('config:moderation:logs').setPlaceholder('Selecionar canal de logs').setChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setMinValues(1).setMaxValues(1)), row(button('config:moderation:toggle', cfg.moderation?.enabled === false ? 'Ativar moderação' : 'Desativar moderação'), button('config:moderation:limits', 'Editar limite de advertências', ButtonStyle.Primary), button('config:moderation:clearlogs', 'Limpar canal de logs'))])], allowedMentions: { parse: [] } });
+}
+
+async function showGiveawaySettings(interaction) {
+  const cfg = await getGuildConfig(interaction.guildId);
+  return updatePanel(interaction, { components: [container('# Sorteios\nSorteios ativos: **' + (cfg.giveaways?.enabled === false ? 'desativados' : 'ativos') + '** · duração máxima: **' + (cfg.giveaways?.maxDurationDays || 365) + ' dias** · canal de logs: ' + (cfg.giveaways?.logChannelId ? '<#' + cfg.giveaways.logChannelId + '>' : 'não configurado') + '.', [navRow(interaction), row(button('config:giveaways:toggle', cfg.giveaways?.enabled === false ? 'Ativar sorteios' : 'Desativar novos sorteios'), button('config:giveaways:limits', 'Editar duração máxima', ButtonStyle.Primary)), row(new ChannelSelectMenuBuilder().setCustomId('config:giveaways:logs').setPlaceholder('Selecionar canal de logs').setChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setMinValues(1).setMaxValues(1))])], allowedMentions: { parse: [] } });
+}
+
+async function showTemplateSettings(interaction) {
+  const cfg = await getGuildConfig(interaction.guildId);
+  const templates = cfg.messageTemplates || [];
+  return updatePanel(interaction, { components: [container('# Templates de mensagens\nArmazenados com a configuração do servidor e reutilizáveis em `/embed` e `/announce`.\n\n' + (templates.length ? templates.map((item) => '• **' + item.name + '** · ' + (item.payload?.mode || 'v2')).join('\n') : 'Nenhum template salvo.') + '\n\nUse `/embed template import|export|list|delete|apply` para gerenciar os modelos.', [navRow(interaction)])], allowedMentions: { parse: [] } });
 }
 
 async function showStores(interaction, update = true, page = 0) {
@@ -449,12 +553,14 @@ async function handleConfigInteraction(interaction) {
   if (!customId.startsWith('config:')) return false;
   const opensModal = interaction.isButton() && [
     'config:xp:message', 'config:xp:voice', 'config:xp:levelup:message', 'config:rewards:conversion', 'config:casino:edit', 'config:trigger:create',
+    'config:storage:limit', 'config:utilities:limits', 'config:moderation:limits', 'config:giveaways:limits',
   ].includes(customId) || (interaction.isButton() && [
     'config:ai:prompt:edit', 'config:ai:generation:basic', 'config:ai:generation:member-limits', 'config:ai:generation:global-limits',
   ].includes(customId)) || (interaction.isButton() && (
     customId === 'config:rewards:work' || customId.startsWith('config:rewards:daily:') || customId.startsWith('config:rules:edit:') ||
     customId.startsWith('config:trigger:text:') || customId.startsWith('config:trigger:response:add:') ||
     customId.startsWith('config:trigger:response:edit:') || customId.startsWith('config:store:create:') || customId.startsWith('config:store:art:') || customId.startsWith('config:badges:edit:')
+    || customId.startsWith('config:storage:rename:')
   )) || (interaction.isRoleSelectMenu() && (customId === 'config:xp:buff:add' || customId.startsWith('config:rule:create:role:')));
   const scheduleModal = interaction.isStringSelectMenu() && (
     (customId.startsWith('config:rules:schedule:frequency:') && interaction.values?.[0] === 'interval') ||
@@ -473,11 +579,12 @@ async function handleConfigInteraction(interaction) {
     }
     return true;
   }
-  const badgeConfigAction = customId === 'config:home'
+  const staffConfigAction = customId === 'config:home'
     || (customId === 'config:nav' && interaction.values?.[0] === 'badges')
+    || ['storage', 'utilities', 'moderation', 'giveaways', 'templates'].some((section) => customId.startsWith('config:' + section + ':') || (customId === 'config:nav' && interaction.values?.[0] === section))
     || customId.startsWith('config:badges:')
     || customId.startsWith('config:modal:badge:');
-  if (interaction.user.id !== config.ownerId && !badgeConfigAction) {
+  if (interaction.user.id !== config.ownerId && !staffConfigAction) {
     if (interaction.deferred || interaction.replied) await followUpV2(interaction, 'Essa área do painel é exclusiva do proprietário.');
     else await replyV2(interaction, 'Essa área do painel é exclusiva do proprietário.', { ephemeral: true });
     return true;
@@ -510,8 +617,23 @@ async function handleConfigInteraction(interaction) {
         else if (value === 'appearance') await showAppearance(interaction);
         else if (value === 'ai') await showAIHome(interaction);
         else if (value === 'badges') await showBadges(interaction);
+        else if (value === 'storage') await showStorage(interaction);
+        else if (value === 'utilities') await showUtilitySettings(interaction);
+        else if (value === 'moderation') await showModerationSettings(interaction);
+        else if (value === 'giveaways') await showGiveawaySettings(interaction);
+        else if (value === 'templates') await showTemplateSettings(interaction);
         else await showHome(interaction, true);
         return true;
+      }
+      if (customId === 'config:storage:category') return showStorage(interaction, true, { page: 0, category: STORAGE_CATEGORIES.includes(value) ? value : 'all' });
+      if (customId.startsWith('config:storage:object:')) return showStorageObject(interaction, value, Number(customId.split(':')[3]) || 0, customId.split(':')[4] || 'all');
+      if (customId === 'config:moderation:logs') {
+        const cfg = await getGuildConfig(interaction.guildId); cfg.moderation.logChannelId = value; await cfg.save();
+        return showModerationSettings(interaction);
+      }
+      if (customId === 'config:giveaways:logs') {
+        const cfg = await getGuildConfig(interaction.guildId); cfg.giveaways.logChannelId = value; await cfg.save();
+        return showGiveawaySettings(interaction);
       }
       if (customId === 'config:badges:create:category') {
         if (!BADGE_CATEGORIES.some((category) => category.value === value)) throw new RangeError('Escolha uma categoria de badge válida.');
@@ -895,6 +1017,43 @@ async function handleConfigInteraction(interaction) {
     }
 
     if (interaction.isModalSubmit()) {
+      if (customId === 'config:modal:storage:limit') {
+        const maxMegabytes = parseNumber(interaction.fields.getTextInputValue('maxBytes'), { min: 0, max: 1048576, label: 'Limite total em MB' });
+        const fileMegabytes = parseNumber(interaction.fields.getTextInputValue('maxFileMb'), { min: 1, max: 100, label: 'Tamanho do arquivo em MB' });
+        const cfg = await getGuildConfig(interaction.guildId);
+        cfg.storage.maxBytes = maxMegabytes * 1048576;
+        cfg.storage.maxFileBytes = fileMegabytes * 1048576;
+        await cfg.save();
+        return showStorage(interaction, false);
+      }
+      if (customId.startsWith('config:modal:storage:rename:')) {
+        const objectId = customId.slice('config:modal:storage:rename:'.length);
+        const object = await BlobObject.findOne({ _id: objectId, guildId: String(interaction.guildId), deletedAt: null }).lean();
+        if (!object) throw new RangeError('Objeto não encontrado.');
+        const newName = interaction.fields.getTextInputValue('name');
+        if (object.references?.length && object.name !== newName.trim() && ['design-system', 'casino', 'profile', 'frame', 'cosmetic'].includes(object.category)) {
+          throw new RangeError('Assets visuais ativos mantêm o nome usado pelo sistema. Você pode renomear objetos sem referência ativa.');
+        }
+        await blobStorage.renameObject(objectId, interaction.guildId, newName);
+        await refreshBlobAssetOverrides(interaction.guildId);
+        return showStorageObject(interaction, objectId, 0, 'all');
+      }
+      if (customId === 'config:modal:utilities:limits') {
+        const maxReminders = parseNumber(interaction.fields.getTextInputValue('maxReminders'), { min: 1, max: 100, label: 'Lembretes por membro' });
+        const maxDays = parseNumber(interaction.fields.getTextInputValue('maxDays'), { min: 1, max: 3650, label: 'Prazo máximo em dias' });
+        const cfg = await getGuildConfig(interaction.guildId); cfg.utilities.maxRemindersPerMember = maxReminders; cfg.utilities.maxReminderDays = maxDays; await cfg.save();
+        return showUtilitySettings(interaction);
+      }
+      if (customId === 'config:modal:moderation:limits') {
+        const threshold = parseNumber(interaction.fields.getTextInputValue('threshold'), { min: 0, max: 100, label: 'Limite de advertências' });
+        const cfg = await getGuildConfig(interaction.guildId); cfg.moderation.warnThreshold = threshold; await cfg.save();
+        return showModerationSettings(interaction);
+      }
+      if (customId === 'config:modal:giveaways:limits') {
+        const maxDays = parseNumber(interaction.fields.getTextInputValue('maxDays'), { min: 1, max: 3650, label: 'Duração máxima em dias' });
+        const cfg = await getGuildConfig(interaction.guildId); cfg.giveaways.maxDurationDays = maxDays; await cfg.save();
+        return showGiveawaySettings(interaction);
+      }
       if (customId.startsWith('config:modal:badge:create:')) {
         const category = customId.split(':').at(-1);
         if (!BADGE_CATEGORIES.some((item) => item.value === category)) throw new RangeError('Categoria de badge inválida.');
@@ -995,7 +1154,9 @@ async function handleConfigInteraction(interaction) {
       if (customId.startsWith('config:modal:store:art:')) {
         const sku = customId.slice('config:modal:store:art:'.length);
         const thumbnailUrl = interaction.fields.getTextInputValue('thumbnailUrl').trim();
-        const item = await editCatalogItem({ guildId: interaction.guildId, actorId: interaction.user.id, sku, changes: { thumbnailUrl } });
+        const previous = await EconomyItem.findOne({ guildId: interaction.guildId, sku, deletedAt: null }).lean();
+        const item = await editCatalogItem({ guildId: interaction.guildId, actorId: interaction.user.id, sku, changes: { thumbnailUrl, thumbnailBlobId: '' } });
+        if (previous?.thumbnailBlobId) await blobStorage.removeReference(previous.thumbnailBlobId, interaction.guildId, 'product', sku);
         await showStoreDetail(interaction, item.sku);
         return true;
       }
@@ -1122,6 +1283,79 @@ async function handleConfigInteraction(interaction) {
     }
 
     if (interaction.isButton()) {
+      if (customId === 'config:storage:limit') {
+        const cfg = await getGuildConfig(interaction.guildId);
+        await interaction.showModal(modal('config:modal:storage:limit', 'Limites do Blob', [
+          shortInput('maxBytes', 'Limite total em MB · 0 sem limite adicional', { value: cfg.storage?.maxBytes ? Math.round(cfg.storage.maxBytes / 1048576) : 0, maxLength: 8 }),
+          shortInput('maxFileMb', 'Tamanho máximo por arquivo em MB · 1 a 100', { value: Math.max(1, Math.round((cfg.storage?.maxFileBytes || 8388608) / 1048576)), maxLength: 3 }),
+        ]));
+        return true;
+      }
+      if (customId.startsWith('config:storage:rename:')) {
+        const objectId = customId.slice('config:storage:rename:'.length).split(':')[0];
+        const object = await BlobObject.findOne({ _id: objectId, guildId: String(interaction.guildId), deletedAt: null }).lean();
+        if (!object) throw new RangeError('Objeto não encontrado.');
+        await interaction.showModal(modal('config:modal:storage:rename:' + objectId, 'Renomear asset', [shortInput('name', 'Nome exibido', { value: object.name, maxLength: 100 })]));
+        return true;
+      }
+      if (customId.startsWith('config:storage:delete:')) {
+        const [, , , objectId, pageText, category] = customId.split(':');
+        const result = await blobStorage.deleteObject(objectId, interaction.guildId);
+        if (!result.deleted && result.reason === 'referenced') {
+          await followUpV2(interaction, 'Este objeto possui ' + result.references.length + ' referência(s) ativa(s). Atualize esses sistemas antes de excluir.');
+          return showStorageObject(interaction, objectId, Number(pageText) || 0, category || 'all');
+        }
+        if (result.deleted) await refreshBlobAssetOverrides(interaction.guildId);
+        return showStorage(interaction, true, { page: Number(pageText) || 0, category: category || 'all' });
+      }
+      if (customId.startsWith('config:storage:page:')) {
+        const [, , , pageText, category] = customId.split(':');
+        return showStorage(interaction, true, { page: Math.max(0, Number(pageText) || 0), category: category || 'all' });
+      }
+      if (customId.startsWith('config:storage:refresh:')) {
+        const [, , , pageText, category] = customId.split(':');
+        return showStorage(interaction, true, { page: Number(pageText) || 0, category: category || 'all' });
+      }
+      if (customId.startsWith('config:storage:back:')) {
+        const [, , , pageText, category] = customId.split(':');
+        return showStorage(interaction, true, { page: Number(pageText) || 0, category: category || 'all' });
+      }
+      if (customId === 'config:storage:toggle') {
+        const cfg = await getGuildConfig(interaction.guildId); cfg.storage.uploadsEnabled = cfg.storage.uploadsEnabled === false; await cfg.save();
+        return showStorage(interaction, true);
+      }
+      if (customId === 'config:utilities:reminders' || customId === 'config:utilities:polls' || customId === 'config:utilities:afk') {
+        const cfg = await getGuildConfig(interaction.guildId); const field = customId.split(':').at(-1) + 'Enabled';
+        cfg.utilities[field] = cfg.utilities[field] === false; await cfg.save(); return showUtilitySettings(interaction);
+      }
+      if (customId === 'config:utilities:limits') {
+        const cfg = await getGuildConfig(interaction.guildId);
+        await interaction.showModal(modal('config:modal:utilities:limits', 'Limites dos lembretes', [
+          shortInput('maxReminders', 'Lembretes pendentes por membro', { value: cfg.utilities?.maxRemindersPerMember || 20, maxLength: 3 }),
+          shortInput('maxDays', 'Prazo máximo em dias', { value: cfg.utilities?.maxReminderDays || 365, maxLength: 4 }),
+        ]));
+        return true;
+      }
+      if (customId === 'config:moderation:toggle') {
+        const cfg = await getGuildConfig(interaction.guildId); cfg.moderation.enabled = cfg.moderation.enabled === false; await cfg.save();
+        return showModerationSettings(interaction);
+      }
+      if (customId === 'config:moderation:clearlogs') {
+        const cfg = await getGuildConfig(interaction.guildId); cfg.moderation.logChannelId = ''; await cfg.save(); return showModerationSettings(interaction);
+      }
+      if (customId === 'config:moderation:limits') {
+        const cfg = await getGuildConfig(interaction.guildId);
+        await interaction.showModal(modal('config:modal:moderation:limits', 'Limite de advertências', [shortInput('threshold', 'Avisar a equipe a partir de · 0 desativa', { value: cfg.moderation?.warnThreshold || 0, maxLength: 3 })]));
+        return true;
+      }
+      if (customId === 'config:giveaways:toggle') {
+        const cfg = await getGuildConfig(interaction.guildId); cfg.giveaways.enabled = cfg.giveaways.enabled === false; await cfg.save(); return showGiveawaySettings(interaction);
+      }
+      if (customId === 'config:giveaways:limits') {
+        const cfg = await getGuildConfig(interaction.guildId);
+        await interaction.showModal(modal('config:modal:giveaways:limits', 'Limite de duração', [shortInput('maxDays', 'Duração máxima em dias', { value: cfg.giveaways?.maxDurationDays || 365, maxLength: 4 })]));
+        return true;
+      }
       if (customId.startsWith('config:badges:page:')) return showBadges(interaction, true, Number(customId.split(':').at(-1)) || 0);
       if (customId.startsWith('config:badges:edit:')) {
         const badgeId = customId.split(':').at(-1);
@@ -1274,7 +1508,80 @@ async function executeConfigCommand(interaction) {
     return;
   }
   await getGuildConfig(interaction.guildId);
+  const assetFile = interaction.options.getAttachment?.('asset_file');
   const promptFile = interaction.options.getAttachment?.('prompt_file');
+  if (assetFile && promptFile) throw new RangeError('Envie um arquivo por vez: asset do Blob ou System Prompt.');
+  if (assetFile) {
+    const cfg = await getGuildConfig(interaction.guildId);
+    if (cfg.storage?.uploadsEnabled === false) throw new RangeError('Os uploads para o Blob estão pausados neste servidor.');
+    const replaceId = interaction.options.getString('replace_object_id');
+    const targetSku = interaction.options.getString('asset_target_sku');
+    const targetTriggerId = interaction.options.getString('asset_trigger_id');
+    const targetBadgeId = interaction.options.getString('asset_badge_id');
+    const targetCosmeticId = interaction.options.getString('asset_cosmetic_id');
+    const targetFrame = interaction.options.getString('asset_frame');
+    if ([replaceId, targetSku, targetTriggerId, targetBadgeId, targetCosmeticId, targetFrame].filter(Boolean).length > 1) throw new RangeError('Escolha apenas uma ação de destino para o asset.');
+    const oldObject = replaceId ? await BlobObject.findOne({ _id: replaceId, guildId: String(interaction.guildId), deletedAt: null }).lean() : null;
+    if (replaceId && !oldObject) throw new RangeError('Objeto Blob para substituição não encontrado.');
+    const requestedAssetName = interaction.options.getString('asset_name');
+    if (oldObject?.references?.length && requestedAssetName?.trim() && requestedAssetName.trim() !== oldObject.name
+      && ['design-system', 'casino', 'profile', 'frame', 'cosmetic'].includes(oldObject.category)) {
+      throw new RangeError('A substituição de um asset visual ativo precisa manter seu nome atual.');
+    }
+    const category = oldObject?.category || (targetSku ? 'product' : targetTriggerId ? 'trigger' : targetBadgeId ? 'badge' : targetCosmeticId ? 'cosmetic' : targetFrame ? 'frame' : (interaction.options.getString('asset_category') || 'other'));
+    const product = targetSku ? await EconomyItem.findOne({ guildId: interaction.guildId, sku: targetSku.toLowerCase(), deletedAt: null }) : null;
+    if (targetSku && !product) throw new RangeError('SKU de produto não encontrado no catálogo deste servidor.');
+    const trigger = targetTriggerId ? cfg.triggers.id(targetTriggerId) : null;
+    if (targetTriggerId && !trigger) throw new RangeError('Gatilho não encontrado. Copie o ID do painel de gatilhos.');
+    if (trigger && trigger.assets.length >= 5) throw new RangeError('Cada gatilho pode usar até cinco imagens. Substitua um objeto existente ou remova uma referência primeiro.');
+    const badge = targetBadgeId ? await BadgeDefinition.findOne({ guildId: interaction.guildId, _id: targetBadgeId }) : null;
+    if (targetBadgeId && !badge) throw new RangeError('Badge especial não encontrada.');
+    if (targetCosmeticId && !BADGE_BY_ID.has(targetCosmeticId)) throw new RangeError('ID de badge cosmética não encontrado. Consulte o catálogo de badges em `/profile-edit`.');
+    const managedName = targetBadgeId ? (interaction.options.getString('asset_name') || badge.name) : targetCosmeticId ? 'cosmetic-' + targetCosmeticId : targetFrame ? 'frame-' + targetFrame : '';
+    const maxFileBytes = Math.min(100 * 1024 * 1024, Number(cfg.storage?.maxFileBytes || 8 * 1024 * 1024));
+    const file = await blobStorage.fetchDiscordAttachment(assetFile, { maxBytes: maxFileBytes });
+    const used = await BlobObject.aggregate([{ $match: { guildId: String(interaction.guildId), deletedAt: null } }, { $group: { _id: null, bytes: { $sum: '$size' } } }]);
+    const currentBytes = used[0]?.bytes || 0;
+    const currentProductObject = product?.thumbnailBlobId ? await BlobObject.findById(product.thumbnailBlobId).lean() : null;
+    const reclaim = oldObject ? oldObject.size : (currentProductObject && currentProductObject.references.length <= 1 ? currentProductObject.size : 0);
+    const maxStorageBytes = Number(cfg.storage?.maxBytes || 0);
+    if (maxStorageBytes > 0 && currentBytes - reclaim + file.buffer.length > maxStorageBytes) throw new RangeError('O limite local de armazenamento deste servidor seria excedido.');
+    const asset = await blobStorage.upload({ guildId: interaction.guildId, category, name: managedName || requestedAssetName || oldObject?.name || (product ? product.name : assetFile.name), filename: file.filename, buffer: file.buffer, createdBy: interaction.user.id, maxFileBytes, replaceObjectId: oldObject?._id || (currentProductObject?.references.length <= 1 ? currentProductObject._id : '') });
+    if (product) {
+      const oldId = product.thumbnailBlobId || '';
+      product.thumbnailBlobId = asset._id;
+      product.thumbnailUrl = asset.url || '';
+      await product.save();
+      await blobStorage.updateReference({ guildId: interaction.guildId, system: 'product', key: product.sku, oldObjectId: oldId, newObjectId: asset._id });
+    } else if (trigger) {
+      trigger.assets.push({ objectId: asset._id, url: asset.url || '', filename: asset.filename });
+      await cfg.save();
+      await blobStorage.addReference(asset._id, interaction.guildId, 'trigger', trigger._id.toString());
+    } else if (badge) {
+      const oldId = badge.assetBlobId || '';
+      badge.assetBlobId = asset._id; badge.assetUrl = asset.url || ''; await badge.save();
+      await blobStorage.updateReference({ guildId: interaction.guildId, system: 'badge', key: badge._id.toString(), oldObjectId: oldId, newObjectId: asset._id });
+    } else if (targetCosmeticId) {
+      await blobStorage.addReference(asset._id, interaction.guildId, 'cosmetic', targetCosmeticId);
+    } else if (targetFrame) {
+      await blobStorage.addReference(asset._id, interaction.guildId, 'frame', targetFrame);
+    } else if (oldObject) {
+      await blobStorage.replaceObject(oldObject._id, asset._id, interaction.guildId);
+      await BlobObject.updateOne({ _id: asset._id }, { $set: { name: interaction.options.getString('asset_name') || oldObject.name } });
+    }
+    if (category === 'design-system' || category === 'casino' || category === 'profile') {
+      const freshAsset = await BlobObject.findById(asset._id).lean();
+      if ((category === 'design-system' && DESIGN_SYSTEM_NAMES.includes(freshAsset?.name)) || (category === 'casino' && freshAsset?.name === 'casino') || (category === 'profile' && freshAsset?.name === 'profile')) {
+        await blobStorage.addReference(asset._id, interaction.guildId, category, freshAsset.name);
+      }
+    }
+    if (['design-system', 'casino', 'profile', 'frame', 'cosmetic'].includes(category)) {
+      await refreshBlobAssetOverrides(interaction.guildId);
+    }
+    const fresh = await BlobObject.findById(asset._id).lean();
+    await showStorageObject(interaction, asset._id, 0, 'all');
+    return fresh;
+  }
   if (promptFile) {
     if (interaction.user.id !== config.ownerId) {
       await replyV2(interaction, 'A importação do System Prompt é exclusiva do proprietário.');
@@ -1291,4 +1598,4 @@ async function executeConfigCommand(interaction) {
   await showHome(interaction);
 }
 
-module.exports = { executeConfigCommand, handleConfigInteraction, showHome, showXp, showLevelUp, showBadges, showBadgeDetail, showPermissions, showRewards, showStores, showTriggers, showTriggerDetail };
+module.exports = { executeConfigCommand, handleConfigInteraction, showHome, showXp, showLevelUp, showBadges, showBadgeDetail, showPermissions, showRewards, showStores, showTriggers, showTriggerDetail, showStorage, showUtilitySettings, showModerationSettings, showGiveawaySettings, showTemplateSettings };

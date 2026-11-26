@@ -6,6 +6,8 @@ const badgeDefinitionSchema = new mongoose.Schema({
   description: { type: String, default: '', maxlength: 120 },
   symbol: { type: String, required: true, trim: true, maxlength: 8 },
   category: { type: String, required: true, maxlength: 30 },
+  assetBlobId: { type: String, default: '' },
+  assetUrl: { type: String, default: '', maxlength: 1000 },
 }, { timestamps: true, versionKey: false });
 
 badgeDefinitionSchema.index({ guildId: 1, name: 1 }, { unique: true });

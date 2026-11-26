@@ -6,6 +6,7 @@ const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const { MemberProfile } = require('../database');
 const { requiredXP } = require('./xp');
 const { BADGES, BADGE_BY_ID, COSMETIC_BADGE_IDS, PROFILE_DEFAULTS, withProfileDefaults } = require('./profileCatalog');
+const { getAssetOverride } = require('./components');
 
 const renderedCards = new Map();
 const CARD_CACHE_TTL_MS = 60_000;
@@ -227,18 +228,25 @@ function drawBadgeShape(ctx, x, y, size, shape) {
   else { for (let point = 0; point < 6; point += 1) { const angle = Math.PI / 3 * point; point ? ctx.lineTo(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius) : ctx.moveTo(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius); } ctx.closePath(); }
 }
 
-function drawBadges(ctx, badges, specialBadges, x, y, size, primary, highlight, textColor, columns = 7) {
+function drawBadges(ctx, badges, specialBadges, x, y, size, primary, highlight, textColor, columns = 7, badgeImages = new Map()) {
   const entries = [
-    ...badges.map((id) => BADGE_BY_ID.get(id)).filter(Boolean),
-    ...(specialBadges || []).map((badge) => ({ ...badge, shape: 'seal' })),
+    ...badges.map((id) => ({ ...(BADGE_BY_ID.get(id) || {}), imageKey: id })).filter((badge) => badge.id),
+    ...(specialBadges || []).map((badge) => ({ ...badge, shape: 'seal', imageKey: 'special:' + String(badge._id || badge.name) })),
   ].slice(0, 7);
   entries.forEach((badge, index) => {
     const centerX = x + (index % columns) * (size + 10) + size / 2;
     const centerY = y + Math.floor(index / columns) * (size + 10) + size / 2;
     ctx.save(); drawBadgeShape(ctx, centerX, centerY, size, badge.shape || 'seal');
-    ctx.fillStyle = rgba(primary, .22); ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = highlight; ctx.stroke();
-    ctx.fillStyle = textColor; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = Math.round(size * .49) + 'px Arial';
-    ctx.fillText(String(badge.symbol || '✦').slice(0, 2), centerX, centerY + 1, size * .84);
+    ctx.fillStyle = rgba(primary, .22); ctx.fill();
+    const image = badgeImages.get(badge.imageKey);
+    if (image) {
+      ctx.save(); drawBadgeShape(ctx, centerX, centerY, size, badge.shape || 'seal'); ctx.clip();
+      ctx.drawImage(image, centerX - size / 2, centerY - size / 2, size, size); ctx.restore();
+    } else {
+      ctx.fillStyle = textColor; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = Math.round(size * .49) + 'px Arial';
+      ctx.fillText(String(badge.symbol || '✦').slice(0, 2), centerX, centerY + 1, size * .84);
+    }
+    drawBadgeShape(ctx, centerX, centerY, size, badge.shape || 'seal'); ctx.lineWidth = 2.5; ctx.strokeStyle = highlight; ctx.stroke();
     ctx.restore();
   });
 }
@@ -278,7 +286,7 @@ function drawBackground(ctx, image, width, height, colors, gradient, overlayOpac
   ctx.save(); ctx.fillStyle = rgba(colors.background, Math.max(.12, Math.min(.58, overlayOpacity))); ctx.beginPath(); ctx.roundRect(0, 0, width, height, 28); ctx.fill(); ctx.restore();
 }
 
-function drawCardContents(ctx, user, xpProfile, customization, rank, badges, specialBadges, colors, width, height) {
+function drawCardContents(ctx, user, xpProfile, customization, rank, badges, specialBadges, colors, width, height, badgeImages = new Map()) {
   const level = xpProfile.level;
   const needed = requiredXP(level);
   const progress = Math.max(0, Math.min(1, xpProfile.xp / needed));
@@ -293,7 +301,7 @@ function drawCardContents(ctx, user, xpProfile, customization, rank, badges, spe
   const bar = (x, y, w) => drawXpBar(ctx, x, y, w, 20, progress, customization.xpBarStyle || 'rounded', colors.xpBar, colors.text, .13);
   const nameAt = (x, y, size, align = 'left', maxWidth = width * .62) => { ctx.fillStyle = textColor; ctx.font = 'bold ' + size + 'px Arial'; ctx.textAlign = align; ctx.fillText(name, x, y, maxWidth); ctx.textAlign = 'left'; };
   const titleAt = (x, y, align = 'left', maxWidth = width * .56) => { if (visibility.title) { ctx.fillStyle = colors.primary; ctx.font = 'bold 21px Arial'; ctx.textAlign = align; ctx.fillText(title, x, y, maxWidth); ctx.textAlign = 'left'; } };
-  const badge = (x, y, size, columns = 7) => { if (visibility.badges) drawBadges(ctx, badges, specialBadges, x, y, size, colors.primary, colors.highlight, textColor, columns); };
+  const badge = (x, y, size, columns = 7) => { if (visibility.badges) drawBadges(ctx, badges, specialBadges, x, y, size, colors.primary, colors.highlight, textColor, columns, badgeImages); };
   const levelAt = (x, y, size = 27, align = 'left') => { if (visibility.level) { ctx.fillStyle = secondaryText; ctx.font = 'bold ' + size + 'px Arial'; ctx.textAlign = align; ctx.fillText('NÍVEL ' + level.toLocaleString('pt-BR'), x, y); ctx.textAlign = 'left'; } };
   const xpAt = (x, y, align = 'left') => { if (visibility.xp) { ctx.fillStyle = textColor; ctx.font = '18px Arial'; ctx.textAlign = align; ctx.fillText(progressText, x, y); ctx.textAlign = 'left'; } };
   const rankAt = (x, y, align = 'left') => { if (visibility.rank) { ctx.fillStyle = rgba(textColor, .72); ctx.font = '14px Arial'; ctx.textAlign = align; ctx.fillText(rankText, x, y); ctx.textAlign = 'left'; } };
@@ -329,9 +337,15 @@ async function renderMemberCard(user, xpProfile, profile, ranking = null, option
   const dimensions = { classic: [1000, 360], wide: [1200, 420], portrait: [800, 900], folio: [1000, 470], orbital: [1000, 430] }[layout];
   const [width, height] = dimensions;
   const specialBadges = Array.isArray(options.specialBadges) ? options.specialBadges : [];
+  const selectedBadges = customization.badges.filter((id) => COSMETIC_BADGE_IDS.includes(id)).slice(0, 6);
+  const badgeImageUrls = [
+    ...selectedBadges.map((id) => [id, getAssetOverride('cosmetic-' + id)]),
+    ...specialBadges.map((badge) => ['special:' + String(badge._id || badge.name), badge.assetUrl || '']),
+  ].filter(([, url]) => /^https:\/\//i.test(url || ''));
+  const frameImageUrl = getAssetOverride('frame-' + customization.frame);
   let backgroundFingerprint = '';
   if (options.backgroundImage) backgroundFingerprint = crypto.createHash('sha1').update(Buffer.isBuffer(options.backgroundImage) ? options.backgroundImage : String(options.backgroundImage)).digest('hex');
-  const cacheKey = JSON.stringify([user.id, user.globalName, user.username, avatarUrl, xpProfile.level, xpProfile.xp, ranking, customization, specialBadges, backgroundFingerprint]);
+  const cacheKey = JSON.stringify([user.id, user.globalName, user.username, avatarUrl, xpProfile.level, xpProfile.xp, ranking, customization, specialBadges, badgeImageUrls.map(([, url]) => url), frameImageUrl, backgroundFingerprint]);
   const cached = renderedCards.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.buffer;
   if (cached) renderedCards.delete(cacheKey);
@@ -349,7 +363,18 @@ async function renderMemberCard(user, xpProfile, profile, ranking = null, option
   drawFrame(ctx, width, height, customization.frame, colors.frame, colors.highlight);
   ctx.fillStyle = rgba(colors.primary, .12); ctx.beginPath(); ctx.arc(width - 54, 38, Math.min(width, height) * .32, 0, Math.PI * 2); ctx.fill();
   const avatar = await cachedSourceImage('avatar:' + avatarUrl, () => loadImage(avatarUrl));
-  drawCardContents(ctx, { ...user, avatar }, xpProfile, customization, ranking, customization.badges.filter((id) => COSMETIC_BADGE_IDS.includes(id)).slice(0, 6), specialBadges, colors, width, height);
+  const badgeImages = new Map();
+  await Promise.all(badgeImageUrls.map(async ([key, url]) => {
+    try { badgeImages.set(key, await cachedSourceImage('badge:' + url, () => loadImage(url))); }
+    catch { /* Missing custom art falls back to the existing badge symbol. */ }
+  }));
+  drawCardContents(ctx, { ...user, avatar }, xpProfile, customization, ranking, selectedBadges, specialBadges, colors, width, height, badgeImages);
+  if (frameImageUrl) {
+    try {
+      const frameImage = await cachedSourceImage('frame:' + frameImageUrl, () => loadImage(frameImageUrl));
+      ctx.drawImage(frameImage, 0, 0, width, height);
+    } catch { /* Procedural frame styling remains available if Blob is unavailable. */ }
+  }
   const buffer = canvas.toBuffer('image/png');
   renderedCards.set(cacheKey, { buffer, expiresAt: Date.now() + CARD_CACHE_TTL_MS });
   while (renderedCards.size > CARD_CACHE_LIMIT) renderedCards.delete(renderedCards.keys().next().value);
@@ -377,6 +402,7 @@ async function updateCustomization(guildId, userId, changes) {
   if (typeof plain.gradient === 'boolean') allowed.gradient = plain.gradient;
   if (Number.isFinite(plain.elementOpacity)) allowed.elementOpacity = Math.max(0, Math.min(100, Math.round(plain.elementOpacity)));
   if (typeof plain.backgroundImageUrl === 'string') allowed.backgroundImageUrl = validateBackgroundUrl(plain.backgroundImageUrl).slice(0, 500);
+  if (typeof plain.backgroundBlobId === 'string') allowed.backgroundBlobId = plain.backgroundBlobId.slice(0, 300);
   if (['classic', 'wide', 'portrait', 'folio', 'orbital'].includes(plain.layout)) allowed.layout = plain.layout;
   if (['rounded', 'segmented', 'orb', 'minimal', 'square'].includes(plain.xpBarStyle)) allowed.xpBarStyle = plain.xpBarStyle;
   if (['circle', 'rounded', 'square', 'diamond', 'hex'].includes(plain.avatarStyle)) allowed.avatarStyle = plain.avatarStyle;

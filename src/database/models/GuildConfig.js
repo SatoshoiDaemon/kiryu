@@ -8,6 +8,7 @@ const buffSchema = new mongoose.Schema({
 const triggerSchema = new mongoose.Schema({
   text: { type: String, required: true, maxlength: 100 },
   responses: { type: [String], default: [] },
+  assets: { type: [{ objectId: { type: String, required: true }, url: { type: String, required: true }, filename: { type: String, default: '' } }], default: [] },
   enabled: { type: Boolean, default: true },
 }, { timestamps: true });
 
@@ -58,6 +59,29 @@ const guildConfigSchema = new mongoose.Schema({
   appearance: {
     palette: { type: String, enum: ['kiryu', 'eclipse', 'jade', 'ember'], default: 'kiryu' },
   },
+  storage: {
+    maxBytes: { type: Number, default: 0, min: 0 },
+    maxFileBytes: { type: Number, default: 8388608, min: 512, max: 104857600 },
+    uploadsEnabled: { type: Boolean, default: true },
+  },
+  utilities: {
+    remindersEnabled: { type: Boolean, default: true },
+    pollsEnabled: { type: Boolean, default: true },
+    afkEnabled: { type: Boolean, default: true },
+    maxRemindersPerMember: { type: Number, default: 20, min: 1, max: 100 },
+    maxReminderDays: { type: Number, default: 365, min: 1, max: 3650 },
+  },
+  moderation: {
+    enabled: { type: Boolean, default: true },
+    logChannelId: { type: String, default: '' },
+    warnThreshold: { type: Number, default: 0, min: 0, max: 100 },
+  },
+  giveaways: {
+    enabled: { type: Boolean, default: true },
+    logChannelId: { type: String, default: '' },
+    maxDurationDays: { type: Number, default: 365, min: 1, max: 3650 },
+  },
+  messageTemplates: { type: [new mongoose.Schema({ name: { type: String, required: true, maxlength: 50 }, payload: { type: mongoose.Schema.Types.Mixed, default: {} }, createdBy: { type: String, required: true } }, { _id: true, timestamps: true })], default: [] },
   adminRoleIds: { type: [String], default: [] },
   triggers: { type: [triggerSchema], default: [] },
 }, { timestamps: true, versionKey: false });

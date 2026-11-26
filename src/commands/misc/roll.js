@@ -3,8 +3,8 @@ const { parseDiceExpression } = require('../../modules/dice');
 const { replyV2, replyMessageV2 } = require('../../modules/components');
 
 const data = new SlashCommandBuilder()
-  .setName('roll')
-  .setDescription('Rola dados usando uma expressão como 2d20+3')
+  .setName('dice')
+  .setDescription('Rola dados sem aposta ou efeito econômico')
   .addStringOption((option) => option.setName('expression').setDescription('Ex.: 1d20, 4d20+10 ou 3d6-2').setRequired(true).setMaxLength(32));
 
 function format(result) {

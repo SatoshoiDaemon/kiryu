@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node src/index.js",
     "db:setup": "node scripts/setupDatabase.js",
+    "blob:validate": "node scripts/validate-blob-live.js",
     "test": "jest --runInBand"
   },
   "repository": {
@@ -31,10 +32,12 @@
   },
   "dependencies": {
     "@napi-rs/canvas": "^1.2.1",
+    "@squarecloud/blob": "^4.2.0",
     "chalk": "^4.1.2",
     "discord.js": "^14.28.0",
     "dotenv": "^18.0.9",
     "mongoose": "^9.11.4",
+    "qrcode": "^1.5.4",
     "winston": "^3.19.0"
   }
 }

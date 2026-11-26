@@ -9,7 +9,7 @@ describe('árvore definitiva de comandos slash', () => {
 
   test('serializa todos os comandos e mantém nomes de comandos, grupos e opções em inglês', () => {
     const definitions = [...commands.values()].map((command) => command.data.toJSON());
-    expect(definitions).toHaveLength(17);
+    expect(definitions).toHaveLength(52);
     for (const definition of definitions) {
       expect(definition.name).toMatch(/^[a-z][a-z0-9_-]*$/);
       for (const name of namesOfOptions(definition.options)) expect(name).toMatch(/^[a-z][a-z0-9_-]*$/);
@@ -24,14 +24,18 @@ describe('árvore definitiva de comandos slash', () => {
 
   test('usa raízes inglesas e mantém descrições em português', () => {
     const names = [...commands.keys()].sort();
-    expect(names).toEqual(['badges', 'casino', 'choose', 'coinflip', 'config', 'daily', 'inventory', 'money', 'orbs', 'profile', 'profile-edit', 'ranking', 'rewards', 'roll', 'shop', 'work', 'xp']);
+    expect(names).toEqual(['afk', 'announce', 'avatar', 'badges', 'ban', 'banner', 'botinfo', 'calculate', 'casino', 'channelinfo', 'choose', 'coinflip', 'color', 'config', 'daily', 'dice', 'embed', 'emojiinfo', 'giveaway', 'help', 'inventory', 'kick', 'lock', 'membercount', 'money', 'orbs', 'ping', 'poll', 'profile', 'profile-edit', 'purge', 'qr', 'random', 'ranking', 'remind', 'rewards', 'roleinfo', 'serverinfo', 'shop', 'slowmode', 'stickerinfo', 'timeout', 'timestamp', 'translate', 'unban', 'unlock', 'uptime', 'userinfo', 'warn', 'warnings', 'work', 'xp']);
     expect(names).not.toContain('orbes');
     expect(names).not.toContain('economia');
+    expect(names).not.toContain('roll');
     expect(commands.get('orbs').data.description).toContain('Orbes');
   });
 
-  test('/config aceita um anexo TXT opcional para importar o System Prompt', () => {
+  test('/config mantém importação do System Prompt e upload de assets opcionais', () => {
     const config = commands.get('config').data.toJSON();
-    expect(config.options).toEqual([expect.objectContaining({ name: 'prompt_file', type: 11, required: false })]);
+    expect(config.options).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'prompt_file', type: 11, required: false }),
+      expect.objectContaining({ name: 'asset_file', type: 11, required: false }),
+    ]));
   });
 });

@@ -18,7 +18,15 @@ const MemberProfile = require('./models/MemberProfile');
 const BadgeDefinition = require('./models/BadgeDefinition');
 const AIUsage = require('./models/AIUsage');
 const AIQuotaCounter = require('./models/AIQuotaCounter');
+const BlobObject = require('./models/BlobObject');
+const Reminder = require('./models/Reminder');
+const CommunityPoll = require('./models/CommunityPoll');
+const Giveaway = require('./models/Giveaway');
+const AfkStatus = require('./models/AfkStatus');
+const AdminAudit = require('./models/AdminAudit');
+const ManagedMessage = require('./models/ManagedMessage');
 const { seedEconomyStores } = require('./seeds/economyStores');
+const { setAssetOverrides } = require('../modules/components');
 
 function createTlsContext() {
   const { ca, certificate, key } = config.certificates;
@@ -72,7 +80,7 @@ function instrumentMongo(client) {
 
 async function initializeDatabase() {
   if (mongoose.connection.readyState !== 1) throw new Error('MongoDB não está conectado.');
-  const models = [UserXp, GuildConfig, EconomyAccount, EconomyItem, EconomyInventory, EconomyTransaction, EconomySettings, EconomyCollectRule, EconomyClaim, MemberProfile, BadgeDefinition, AIUsage, AIQuotaCounter];
+  const models = [UserXp, GuildConfig, EconomyAccount, EconomyItem, EconomyInventory, EconomyTransaction, EconomySettings, EconomyCollectRule, EconomyClaim, MemberProfile, BadgeDefinition, AIUsage, AIQuotaCounter, BlobObject, Reminder, CommunityPoll, Giveaway, AfkStatus, AdminAudit, ManagedMessage];
   await Promise.all(models.map((model) => model.createCollection().catch(ignoreNamespaceExists)));
   await Promise.all(models.map((model) => model.createIndexes()));
   if (config.guildId) {
@@ -81,6 +89,7 @@ async function initializeDatabase() {
       seedEconomyStores(config.guildId),
     ]);
     applyPalette(guildConfig?.appearance?.palette || 'kiryu');
+    setAssetOverrides(await BlobObject.find({ guildId: config.guildId, deletedAt: null }).select('category name url deletedAt').lean());
     logger.info('Lojas da economia sincronizadas: ' + seeded.fragments + ' produtos de Fragmentos e ' + seeded.orbs + ' produtos de Orbes.');
   } else {
     logger.warn('Seed das lojas ignorado porque SERVER_ID não está configurado.');
@@ -100,4 +109,5 @@ async function closeDatabase() {
 module.exports = {
   connectDatabase, initializeDatabase, closeDatabase, UserXp, GuildConfig, createTlsContext, instrumentMongo,
   EconomyAccount, EconomyItem, EconomyInventory, EconomyTransaction, EconomySettings, EconomyCollectRule, EconomyClaim, MemberProfile, BadgeDefinition, AIUsage, AIQuotaCounter,
+  BlobObject, Reminder, CommunityPoll, Giveaway, AfkStatus, AdminAudit, ManagedMessage,
 };

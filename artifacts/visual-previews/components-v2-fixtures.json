@@ -1,6 +1,6 @@
 {
   "generatedAt": "2026-11-25T16:00:00.000Z",
-  "note": "Payloads serializados dos builders usados na implementação. São componentes Discord V2 reais, não mockups renderizados.",
+  "note": "Payloads serializados por builders reais do Discord. phase-2.3-interfaces.png é um mockup conceitual; não é captura do cliente Discord.",
   "store": {
     "type": 17,
     "accent_color": 1477224,
@@ -80,7 +80,7 @@
       },
       {
         "type": 10,
-        "content": "-# <t:1795653452:R> · **Developer by Krieg.js**"
+        "content": "-# <t:1795660808:R> · **Developer by Krieg.js**"
       }
     ]
   },
@@ -210,7 +210,7 @@
       },
       {
         "type": 10,
-        "content": "-# <t:1795653452:R> · **Developer by Krieg.js**"
+        "content": "-# <t:1795660808:R> · **Developer by Krieg.js**"
       }
     ]
   },
@@ -328,7 +328,7 @@
       },
       {
         "type": 10,
-        "content": "-# <t:1795653452:R> · **Developer by Krieg.js**"
+        "content": "-# <t:1795660808:R> · **Developer by Krieg.js**"
       }
     ]
   },
@@ -522,7 +522,7 @@
       },
       {
         "type": 10,
-        "content": "-# <t:1795653452:R> · **Developer by Krieg.js**"
+        "content": "-# <t:1795660808:R> · **Developer by Krieg.js**"
       }
     ]
   },
@@ -590,7 +590,7 @@
       },
       {
         "type": 10,
-        "content": "-# <t:1795653452:R> · **Developer by Krieg.js**"
+        "content": "-# <t:1795660808:R> · **Developer by Krieg.js**"
       }
     ]
   },
@@ -631,7 +631,298 @@
       },
       {
         "type": 10,
-        "content": "-# <t:1795653452:R> · **Developer by Krieg.js**"
+        "content": "-# <t:1795660808:R> · **Developer by Krieg.js**"
+      }
+    ]
+  },
+  "storageManager": {
+    "type": 17,
+    "accent_color": 10295117,
+    "components": [
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "-# ETERNITY REALMS · KIRYU\n# Armazenamento · Square Cloud Blob\n8 objetos · 14,2 MB · 6 referências · 2 órfãos"
+          }
+        ],
+        "accessory": {
+          "type": 11,
+          "media": {
+            "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/crest.png"
+          },
+          "description": "Selo Kiryu · Armazenamento · Square Cloud Blob"
+        }
+      },
+      {
+        "type": 10,
+        "content": "• `profile-1482.png` · Perfil · 2,4 MB · 1 referência\n• `frame-royal.png` · Moldura · 1,8 MB · 2 referências\n• `crystal-ball.png` · Produto · 980 KB · 1 referência\n• `welcome-loop.gif` · Gatilho · 6,1 MB · órfão\n\nObjetos referenciados não podem ser excluídos."
+      },
+      {
+        "type": 1,
+        "components": [
+          {
+            "type": 2,
+            "custom_id": "config:storage:upload",
+            "label": "Enviar imagem",
+            "style": 3
+          },
+          {
+            "type": 2,
+            "custom_id": "config:storage:limits",
+            "label": "Limites",
+            "style": 2
+          }
+        ]
+      },
+      {
+        "type": 1,
+        "components": [
+          {
+            "type": 3,
+            "custom_id": "config:storage:filter",
+            "placeholder": "Filtrar objetos",
+            "options": [
+              {
+                "label": "Todos",
+                "value": "all"
+              },
+              {
+                "label": "Perfis",
+                "value": "profile"
+              },
+              {
+                "label": "Produtos",
+                "value": "product"
+              },
+              {
+                "label": "Gatilhos",
+                "value": "trigger"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": 14,
+        "spacing": 1
+      },
+      {
+        "type": 12,
+        "items": [
+          {
+            "media": {
+              "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/kiryu-divider.gif"
+            },
+            "description": "Divisória da Kiryu"
+          }
+        ]
+      },
+      {
+        "type": 10,
+        "content": "-# <t:1795660808:R> · **Developer by Krieg.js**"
+      }
+    ]
+  },
+  "messageEditor": {
+    "type": 17,
+    "accent_color": 10295117,
+    "components": [
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "# Uma nova jornada começa"
+          }
+        ],
+        "accessory": {
+          "type": 11,
+          "media": {
+            "url": "https://cdn.example.org/kiryu/expedition.png"
+          },
+          "description": "Imagem da mensagem"
+        }
+      },
+      {
+        "type": 10,
+        "content": "A expedição para o Vale da Lua abre hoje às 19h. Reúna seu grupo e prepare seus equipamentos."
+      },
+      {
+        "type": 10,
+        "content": "📍 Vale da Lua · 19h BRT"
+      },
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "Reúna seu grupo e descubra os segredos da região."
+          }
+        ],
+        "accessory": {
+          "type": 11,
+          "media": {
+            "url": "https://cdn.example.org/kiryu/crest.png"
+          },
+          "description": "Imagem da seção"
+        }
+      },
+      {
+        "type": 14
+      },
+      {
+        "type": 12,
+        "items": [
+          {
+            "media": {
+              "url": "https://cdn.example.org/kiryu/expedition.png"
+            },
+            "description": "Mapa da expedição"
+          }
+        ]
+      },
+      {
+        "type": 1,
+        "components": [
+          {
+            "type": 2,
+            "label": "Ver detalhes",
+            "style": 5,
+            "url": "https://example.org/expedition"
+          }
+        ]
+      }
+    ]
+  },
+  "help": {
+    "type": 17,
+    "accent_color": 7754953,
+    "components": [
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "-# RELIQUIÁRIO · ORBES\n# Central de ajuda\nEscolha uma categoria para ver os comandos disponíveis para você."
+          }
+        ],
+        "accessory": {
+          "type": 11,
+          "media": {
+            "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/orbs.png"
+          },
+          "description": "Selo Kiryu · Central de ajuda"
+        }
+      },
+      {
+        "type": 1,
+        "components": [
+          {
+            "type": 3,
+            "custom_id": "help:category:preview-owner",
+            "placeholder": "Escolha uma categoria",
+            "options": [
+              {
+                "label": "Informações",
+                "value": "Informações"
+              },
+              {
+                "label": "Ferramentas gerais",
+                "value": "Ferramentas gerais"
+              },
+              {
+                "label": "Administração",
+                "value": "Administração"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": 14,
+        "spacing": 1
+      },
+      {
+        "type": 12,
+        "items": [
+          {
+            "media": {
+              "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/kiryu-divider.gif"
+            },
+            "description": "Divisória da Kiryu"
+          }
+        ]
+      },
+      {
+        "type": 10,
+        "content": "-# <t:1795660808:R> · **Developer by Krieg.js**"
+      }
+    ]
+  },
+  "poll": {
+    "embeds": [
+      {
+        "color": 7754953,
+        "title": "📊 Qual rota seguimos?",
+        "description": "1. **Rota do Norte** · 12 votos\n2. **Passagem Subterrânea** · 7 votos\n3. **Costa das Brumas** · 4 votos",
+        "footer": {
+          "text": "Kiryu · Developer by Krieg.js"
+        },
+        "timestamp": "2026-11-26T02:40:08.160Z"
+      }
+    ],
+    "components": [
+      {
+        "type": 1,
+        "components": [
+          {
+            "type": 2,
+            "custom_id": "poll:vote:123456789012345678:0",
+            "label": "Rota do Norte",
+            "style": 1
+          },
+          {
+            "type": 2,
+            "custom_id": "poll:vote:123456789012345678:1",
+            "label": "Passagem Subterrânea",
+            "style": 2
+          },
+          {
+            "type": 2,
+            "custom_id": "poll:vote:123456789012345678:2",
+            "label": "Costa das Brumas",
+            "style": 2
+          }
+        ]
+      }
+    ]
+  },
+  "giveaway": {
+    "embeds": [
+      {
+        "color": 7754953,
+        "title": "🎉 Sorteio · Mapa estelar",
+        "description": "Clique em **Participar** para concorrer.\n\n**Prêmio:** Mapa estelar\n**Vencedores:** 3\n**Participantes:** 2\n**Encerra:** <t:1795629600:F>\n**Status:** aberto",
+        "footer": {
+          "text": "Kiryu · Developer by Krieg.js"
+        },
+        "timestamp": "2026-11-26T02:40:08.165Z"
+      }
+    ],
+    "components": [
+      {
+        "type": 1,
+        "components": [
+          {
+            "type": 2,
+            "custom_id": "giveaway:join:123456789012345678",
+            "label": "Participar",
+            "style": 3,
+            "disabled": false
+          }
+        ]
       }
     ]
   }

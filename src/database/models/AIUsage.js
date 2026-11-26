@@ -5,7 +5,7 @@ const aiUsageSchema = new mongoose.Schema({
   userId: { type: String, required: true },
   channelId: { type: String, default: '' },
   model: { type: String, required: true, default: 'cubic' },
-  kind: { type: String, enum: ['chat', 'connection-test', 'personality-test'], default: 'chat' },
+  kind: { type: String, enum: ['chat', 'connection-test', 'personality-test', 'translate'], default: 'chat' },
   status: { type: String, enum: ['succeeded', 'failed', 'rate-limited', 'cancelled'], required: true },
   inputTokens: { type: Number, min: 0 },
   outputTokens: { type: Number, min: 0 },

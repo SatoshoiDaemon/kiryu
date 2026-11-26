@@ -3,6 +3,7 @@ jest.mock('../src/modules/xpService', () => ({ getGuildConfig: jest.fn(), awardM
 jest.mock('../src/modules/triggers', () => ({ findTrigger: jest.fn(() => null), chooseResponse: jest.fn(() => null) }));
 jest.mock('../src/modules/levelUpNotifications', () => ({ notifyLevelUp: jest.fn().mockResolvedValue({ status: 'unconfigured' }) }));
 jest.mock('../src/modules/aiConversation', () => ({ handleAIMessage: jest.fn().mockResolvedValue({ status: 'ignored' }) }));
+jest.mock('../src/modules/communityCommands', () => ({ handleAfkMessage: jest.fn().mockResolvedValue(undefined) }));
 jest.mock('../src/modules/components', () => ({ replyMessageV2: jest.fn() }));
 jest.mock('../src/handlers/commandHandler', () => ({ handlePrefixMessage: jest.fn() }));
 jest.mock('../src/logger', () => ({ warn: jest.fn() }));

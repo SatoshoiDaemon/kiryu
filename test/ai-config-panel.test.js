@@ -136,6 +136,9 @@ describe('painel Kiryu Intelligence', () => {
 
   test('a árvore /config oferece importação opcional de .txt', () => {
     const command = require('../src/commands/admin/config').data.toJSON();
-    expect(command.options).toEqual([expect.objectContaining({ name: 'prompt_file', type: 11, required: false })]);
+    expect(command.options).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'prompt_file', type: 11, required: false }),
+      expect.objectContaining({ name: 'asset_file', type: 11, required: false }),
+    ]));
   });
 });

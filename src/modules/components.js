@@ -10,6 +10,21 @@ const {
   ThumbnailBuilder,
 } = require('discord.js');
 const config = require('../config');
+const assetOverrides = new Map();
+
+const SYSTEM_ASSET_NAMES = new Set(['crest', 'xp', 'fragments', 'orbs', 'store', 'casino', 'profile', 'admin', 'orb-red', 'orb-orange', 'orb-green', 'orb-gold', 'orb-blue', 'orb-black', 'divider']);
+
+function setAssetOverrides(objects = []) {
+  assetOverrides.clear();
+  for (const object of objects) {
+    if (object.deletedAt || !object.url) continue;
+    const name = String(object.name || '').trim().toLowerCase();
+    if ((object.category === 'design-system' && SYSTEM_ASSET_NAMES.has(name))
+      || (name === 'casino' && object.category === 'casino') || (name === 'profile' && object.category === 'profile')
+      || (object.category === 'frame' && /^frame-(classic|royal|neon|rune|ornate|minimal|gilded|thorn)$/.test(name))
+      || (object.category === 'cosmetic' && /^cosmetic-[a-z0-9-]{1,40}$/.test(name))) assetOverrides.set(name, object.url);
+  }
+}
 
 const SYSTEMS = {
   brand: { key: 'crest', eyebrow: 'ETERNITY REALMS · KIRYU' },
@@ -29,9 +44,12 @@ function systemForColor(color) {
 function systemAsset(name) {
   const system = SYSTEMS[name] || SYSTEMS.brand;
   const key = name.startsWith('orb-') ? name : system.key;
+  if (assetOverrides.has(key)) return assetOverrides.get(key);
   const baseUrl = config.visual.assetBaseUrl || 'https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets';
   return baseUrl + '/systems/' + key + '.png';
 }
+
+function getAssetOverride(name) { return assetOverrides.get(String(name || '').toLowerCase()) || null; }
 
 function headerSection(title, subtitle = '', system = 'brand') {
   const systemName = typeof system === 'string' ? system : (Object.keys(SYSTEMS).find((key) => SYSTEMS[key] === system) || 'brand');
@@ -69,10 +87,11 @@ function footerText(now = Date.now()) {
 }
 
 function decorateContainer(container, { divider = true, now = Date.now() } = {}) {
-  if (divider && config.visual.dividerUrl) {
+  const dividerUrl = assetOverrides.get('divider') || config.visual.dividerUrl;
+  if (divider && dividerUrl) {
     container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
     container.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(
-      new MediaGalleryItemBuilder().setURL(config.visual.dividerUrl).setDescription('Divisória da Kiryu'),
+      new MediaGalleryItemBuilder().setURL(dividerUrl).setDescription('Divisória da Kiryu'),
     ));
   }
   container.addTextDisplayComponents(new TextDisplayBuilder().setContent(footerText(now)));
@@ -121,4 +140,4 @@ async function followUpV2(interaction, content, options = {}) {
   });
 }
 
-module.exports = { SYSTEMS, systemAsset, systemForColor, headerSection, resourceSection, createContainer, decorateContainer, footerText, replyV2, replyMessageV2, followUpV2 };
+module.exports = { SYSTEMS, systemAsset, getAssetOverride, systemForColor, headerSection, resourceSection, createContainer, decorateContainer, footerText, replyV2, replyMessageV2, followUpV2, setAssetOverrides };

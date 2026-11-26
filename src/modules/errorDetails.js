@@ -3,7 +3,7 @@ function errorDetails(error) {
   let details = [error?.name, error?.code, error?.codeName, error?.message,
     error?.cause?.message].filter((value) => value !== undefined && value !== null).join(' | ');
   for (const [key, value] of Object.entries(process.env)) {
-    if (/TOKEN|PASSWORD|SECRET|URI|PRIVATE_KEY/i.test(key) && value) {
+    if (/TOKEN|PASSWORD|SECRET|URI|PRIVATE_KEY|API_KEY/i.test(key) && value) {
       details = details.split(value).join('[redacted]');
     }
   }

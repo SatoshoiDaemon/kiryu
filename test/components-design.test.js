@@ -1,5 +1,5 @@
 const config = require('../src/config');
-const { createContainer, footerText } = require('../src/modules/components');
+const { createContainer, footerText, setAssetOverrides, getAssetOverride } = require('../src/modules/components');
 
 describe('sistema visual compartilhado', () => {
   test('padroniza crédito, timestamp e divisória em um container V2 serializável', () => {
@@ -16,5 +16,15 @@ describe('sistema visual compartilhado', () => {
     } finally {
       config.visual.dividerUrl = previous;
     }
+  });
+
+  test('aplica overrides gerenciados de moldura e badge cosmética', () => {
+    setAssetOverrides([
+      { category: 'frame', name: 'frame-royal', url: 'https://cdn.example.org/frame.png' },
+      { category: 'cosmetic', name: 'cosmetic-dragon', url: 'https://cdn.example.org/dragon.png' },
+    ]);
+    expect(getAssetOverride('frame-royal')).toBe('https://cdn.example.org/frame.png');
+    expect(getAssetOverride('cosmetic-dragon')).toBe('https://cdn.example.org/dragon.png');
+    setAssetOverrides([]);
   });
 });

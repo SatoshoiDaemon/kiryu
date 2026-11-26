@@ -9,6 +9,8 @@ const { handleBadgeInteraction } = require('../commands/admin/badges');
 const metrics = require('../modules/performanceMetrics');
 const { say } = require('../modules/personality');
 const config = require('../config');
+const { handleCommunityInteraction } = require('../modules/communityCommands');
+const { handleAdminInteraction } = require('../modules/adminCommands');
 
 async function processInteraction(interaction, client) {
   if (interaction.isChatInputCommand()) {
@@ -25,7 +27,8 @@ async function processInteraction(interaction, client) {
       await command.execute(interaction, client);
     } catch (error) {
       logger.error('Falha ao executar /' + interaction.commandName + ' (' + errorDetails(error) + ').');
-      const detail = error.publicMessage || (error instanceof RangeError ? error.message : '');
+      const detail = error.publicMessage || (error instanceof RangeError ? error.message : '')
+        || (error.name === 'SquareCloudBlobError' || String(error.code || '').startsWith('BLOB_') ? require('../modules/blobStorage').blobErrorMessage(error) : '');
       const message = say('error') + (detail ? '\n\n' + detail : '');
       await replyV2(interaction, message, {
         ephemeral: !interaction.deferred && !interaction.replied,
@@ -37,13 +40,16 @@ async function processInteraction(interaction, client) {
 
   if (interaction.isButton() || interaction.isAnySelectMenu() || interaction.isModalSubmit()) {
     try {
+      if (await handleAdminInteraction(interaction)) return;
+      if (await handleCommunityInteraction(interaction, client)) return;
       if (await handleProfileInteraction(interaction)) return;
       if (await handleBadgeInteraction(interaction)) return;
       if (await handleConfigInteraction(interaction)) return;
       await handleEconomyInteraction(interaction);
     } catch (error) {
       logger.error('Falha ao processar interação (' + errorDetails(error) + ').');
-      const detail = error.publicMessage || (error instanceof RangeError ? error.message : 'Tente novamente ou reabra a interface.');
+      const detail = error.publicMessage || (error instanceof RangeError ? error.message : '')
+        || (error.name === 'SquareCloudBlobError' || String(error.code || '').startsWith('BLOB_') ? require('../modules/blobStorage').blobErrorMessage(error) : 'Tente novamente ou reabra a interface.');
       const message = say('error') + '\n\n' + detail;
       if (interaction.deferred || interaction.replied) await followUpV2(interaction, message, { accentColor: config.visual.error }).catch(() => {});
       else await replyV2(interaction, message, { ephemeral: true, accentColor: config.visual.error }).catch(() => {});

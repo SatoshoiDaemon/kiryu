@@ -48,7 +48,15 @@ async function makePayload(user, guildId, ownerId, editable = false, section = '
   const specialBadges = renderContext.specialBadges || await fetchSpecialBadges(storedProfile, guildId);
   const cardCustomization = { ...customization };
   delete cardCustomization.badgeCategory; delete cardCustomization.selectedBadge; delete cardCustomization.selectedColor;
-  const image = await renderMemberCard(user, xp, cardCustomization, rank, { specialBadges });
+  let backgroundImage;
+  if (cardCustomization.backgroundBlobId) {
+    try {
+      const { BlobObject } = require('../../database');
+      const asset = await BlobObject.findOne({ _id: cardCustomization.backgroundBlobId, guildId, deletedAt: null }).lean();
+      if (asset) backgroundImage = (await require('../../modules/blobStorage').download(asset._id)).buffer;
+    } catch { /* Profiles remain usable when Blob is temporarily unavailable. */ }
+  }
+  const image = await renderMemberCard(user, xp, cardCustomization, rank, { specialBadges, ...(backgroundImage ? { backgroundImage } : {}) });
   const files = [new AttachmentBuilder(image, { name: 'perfil-kiryu.png' })];
   const card = new ContainerBuilder().setAccentColor(config.visual.profile)
     .addSectionComponents(headerSection((user.globalName || user.username) + ' · Perfil', 'Uma pequena vitrine da sua presença no Eternity.', 'profile'))
@@ -145,6 +153,14 @@ async function executeEdit(interaction) {
   const stored = await getMemberProfile(interaction.guildId, user.id);
   const xp = await getProfile(interaction.guildId, user.id);
   const customization = customizationDefaults(stored);
+  const upload = interaction.options?.getAttachment?.('image');
+  if (upload) {
+    const storage = require('../../modules/blobStorage');
+    const { buffer, filename } = await storage.fetchDiscordAttachment(upload);
+    const asset = await storage.upload({ guildId: interaction.guildId, category: 'profile', name: 'profile-' + user.id, filename, buffer, createdBy: user.id, replaceObjectId: stored.backgroundBlobId || '' });
+    customization.backgroundBlobId = asset._id;
+    customization.backgroundImageUrl = asset.url || customization.backgroundImageUrl;
+  }
   const specialBadges = await fetchSpecialBadges(stored, interaction.guildId);
   const rank = customization.visibility?.rank === false ? null : await getRank(interaction.guildId, xp);
   const token = require('node:crypto').randomBytes(5).toString('hex');
@@ -204,7 +220,7 @@ async function handleEditInteraction(interaction, token, action) {
   if (interaction.isButton()) {
     if (action.endsWith('-edit') || action === 'opacity-edit' || action === 'background-url') return false;
     if (action === 'gradient-toggle') session.draft.gradient = session.draft.gradient === false;
-    else if (action === 'background-clear') session.draft.backgroundImageUrl = '';
+    else if (action === 'background-clear') { session.draft.backgroundImageUrl = ''; session.draft.backgroundBlobId = ''; }
     else if (action === 'badge-remove' && session.draft.selectedBadge) session.draft.badges = session.draft.badges.filter((id) => id !== session.draft.selectedBadge);
     else if (action === 'badge-up' || action === 'badge-down') {
       const index = session.draft.badges.indexOf(session.draft.selectedBadge);
@@ -214,10 +230,13 @@ async function handleEditInteraction(interaction, token, action) {
       }
     } else if (action === 'reset') {
       session.draft = withProfileDefaults({ ...PROFILE_DEFAULTS, colors: { ...PROFILE_DEFAULTS.colors }, visibility: { ...PROFILE_DEFAULTS.visibility }, badges: [], specialBadges: session.draft.specialBadges });
+      session.draft.backgroundBlobId = '';
       session.selectedBadge = null; session.selectedColor = 'primary';
     } else if (action === 'apply') {
       const toSave = { ...session.draft }; delete toSave.badgeCategory; delete toSave.selectedBadge; delete toSave.backgroundStops; delete toSave.specialBadges;
+      const oldBlobId = session.profile?.backgroundBlobId || '';
       await updateCustomization(session.guildId, session.userId, toSave);
+      await require('../../modules/blobStorage').updateReference({ guildId: session.guildId, system: 'profile', key: session.userId, oldObjectId: oldBlobId, newObjectId: toSave.backgroundBlobId || '' });
       EDIT_SESSIONS.delete(token);
       await interaction.editReply(await makePayload(session.user, session.guildId, null, false));
       return true;
@@ -248,7 +267,10 @@ async function handleProfileInteraction(interaction) {
         if (!Number.isInteger(opacity) || opacity < 0 || opacity > 100) throw new RangeError('A transparência deve estar entre 0 e 100.');
         session.draft.elementOpacity = opacity;
       }
-      if (action === 'modal:backgroundUrl') session.draft.backgroundImageUrl = interaction.fields.getTextInputValue('backgroundUrl').trim();
+      if (action === 'modal:backgroundUrl') {
+        session.draft.backgroundImageUrl = interaction.fields.getTextInputValue('backgroundUrl').trim();
+        if (session.draft.backgroundImageUrl) session.draft.backgroundBlobId = '';
+      }
       if (action === 'modal:title') session.draft.title = interaction.fields.getTextInputValue('title').trim();
       if (action === 'modal:bio') session.draft.bio = interaction.fields.getTextInputValue('bio').trim();
       await refreshEditor(interaction, token, session);

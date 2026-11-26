@@ -1,6 +1,6 @@
 # Kiryu — Eternity Realms
 
-Bot comunitário do Eternity Realms: progressão de XP, Fragmentos, Orbes, lojas, inventário, recompensas por cargo, cassino virtual, perfis ilustrados, rankings e painel administrativo. Interfaces interativas usam Discord Components V2; cartões de perfil são PNG renderizados pelo próprio bot.
+Bot comunitário do Eternity Realms: progressão de XP, Fragmentos, Orbes, lojas, inventário, recompensas por cargo, cassino virtual, perfis ilustrados, rankings, armazenamento de assets no Square Cloud Blob e ferramentas comunitárias e administrativas. Interfaces interativas usam Discord Components V2; cartões de perfil são PNG renderizados pelo próprio bot.
 
 ## Executar localmente
 
@@ -14,9 +14,12 @@ O banco padrão chama-se `kiryu`. A atualização de schemas é aditiva: XP e n�
 
 Nomes de comandos, grupos, subcomandos e opções são em inglês. Descrições, telas e respostas são em português. As opções `member` aceitam usuários do servidor; operações administrativas verificam o proprietário ou os cargos autorizados.
 
-### Administração
+### Administração e configuração
 
-- `/config` — painel permanente do proprietário; a equipe autorizada também pode abrir a seção de badges especiais. As configurações gerais e a seção de permissões continuam exclusivas do proprietário.
+- `/config` — painel central com seções de armazenamento, utilitários, moderação, sorteios, templates, permissões e limites. `prompt_file` importa System Prompt; `asset_file` envia imagens ao Blob.
+- `/purge`, `/announce`, `/slowmode`, `/lock`, `/unlock`, `/kick`, `/ban`, `/unban`, `/timeout apply|remove`, `/warn` e `/warnings` — ferramentas de moderação, anúncios e gestão de mensagens com permissões nativas, hierarquia de cargos e registros persistentes.
+- `/embed create|edit` — editor de mensagens tradicionais e Components V2. `/embed template list|delete|export|import|apply` gerencia modelos reutilizáveis.
+- `/giveaway start|end|cancel|reroll|entrants|history` — sorteios persistentes com múltiplos vencedores, requisitos opcionais por cargo e encerramento automático.
 - `/xp add|remove|set member amount`, `/xp reset member` — operações administrativas sobre XP acumulado.
 - `/xp level view [member]` — consulta pública do nível.
 - `/xp level add|remove|set member amount` — operações administrativas sobre nível.
@@ -40,16 +43,21 @@ Nomes de comandos, grupos, subcomandos e opções são em inglês. Descrições,
 - `/inventory view [member]` — inventário próprio ou de outra pessoa, com navegação e detalhes.
 - `/casino flip|dice|slots side bet` — jogos de Fragmentos virtuais.
 
-### Perfil e ferramentas comunitárias
+### Informações
 
+- `/avatar [member] [server]`, `/banner [member]`, `/userinfo [member]`, `/serverinfo`, `/roleinfo role`, `/channelinfo [channel]`, `/emojiinfo emoji`, `/stickerinfo sticker_id`, `/botinfo`, `/ping`, `/uptime` e `/membercount` — consultas com imagens, timestamps e dados de serviço.
+- `/help` — central interativa que mostra categorias e comandos disponíveis conforme as permissões do membro.
 - `/profile [member]` — consulta rápida do próprio cartão ou do perfil de outra pessoa.
-- `/profile-edit` — editor completo com prévia, rascunho, aplicação, cancelamento e restauração dos padrões.
+- `/profile-edit image:<anexo>` — personaliza o fundo enviando uma imagem pelo Discord; o editor também mantém as opções existentes e URLs legadas.
 - `/ranking board` — quadro de níveis ou patrimônio em Fragmentos.
-- `/choose options` — escolhe entre opções separadas por vírgula.
-- `/coinflip` — lança uma moeda.
-- `/roll expression` — rola dados, por exemplo `1d20` ou `4d20+10`.
 
-O Discord só admite `/xp level` como um grupo quando há um subcomando abaixo dele; por isso, a consulta aparece como `/xp level view`. `/inventory view` também identifica a consulta em uma árvore válida. A sincronização substitui em lote os comandos do servidor com a árvore carregada, removendo do registro ativo os nomes obsoletos.
+### Ferramentas gerais
+
+- `/remind create|list|cancel` — lembretes persistentes por membro.
+- `/timestamp`, `/poll create|close`, `/choose options`, `/random min max`, `/calculate expression`, `/translate text to [from]`, `/color value [format]`, `/qr content` e `/afk [message]`.
+- `/dice expression` — rolagem de dados recreativa e independente do cassino; `/coinflip` também não altera saldos.
+
+O Discord só admite `/xp level` como um grupo quando há um subcomando abaixo dele; por isso, a consulta aparece como `/xp level view`. `/inventory view` também identifica a consulta em uma árvore válida. A antiga rolagem `/roll` passa a ser `/dice`. A sincronização substitui em lote os **52 comandos** do servidor com a árvore carregada, removendo do registro ativo os nomes obsoletos.
 
 ## Configuração
 
@@ -63,8 +71,25 @@ O Discord só admite `/xp level` como um grupo quando há um subcomando abaixo d
 - **Badges especiais:** criação, edição, atribuição e remoção de selos especiais pela equipe; o proprietário e cargos autorizados podem usar esta seção. `/badges assign|remove` oferece operações administrativas diretas. Badges especiais ficam separadas das cosméticas selecionáveis pelos membros.
 - **Lojas e itens:** catálogo paginado, nome, descrição, emoji, arte, preço, moeda, estoque, datas, visibilidade, entrega, uso, ação segura, unidades por compra e opções.
 - **Gatilhos:** texto exato, várias respostas, ativação e edição visual.
+- **Armazenamento:** limites por servidor, tamanho máximo por imagem, pausa de uploads, filtros por categoria, paginação, prévia, referências, órfãos, rename e remoção segura.
+- **Utilitários:** ativação de lembretes, enquetes e estados AFK; limite de lembretes por membro e horizonte máximo.
+- **Moderação e logs:** ativação, canal administrativo, limite para alertas de advertências.
+- **Sorteios:** ativação, canal de logs e duração máxima.
+- **Templates:** consulta e utilização dos templates persistentes do editor.
 
 Operações individuais de XP, saldo, Orbes e inventário ficam nos comandos administrativos correspondentes; elas não alteram os registros de configuração permanente.
+
+## Square Cloud Blob
+
+A Kiryu usa o [SDK oficial `@squarecloud/blob`](https://github.com/squarecloudofc/sdk-blob-js) para armazenar imagens e GIFs em namespaces `kiryu/<servidor>/<categoria>`. Configure `SQUARECLOUD_API_KEY` com os escopos `blob:read` e `blob:write`. O serviço valida assinatura, extensão, tamanho e quotas, grava metadados e IDs opacos no MongoDB e utiliza a URL pública retornada pelo provedor; URLs temporárias de anexos do Discord são usadas somente para a ingestão inicial.
+
+Fundos de perfil enviados pelo comando `/profile-edit image` e assets de produtos, badges, molduras, cosméticos, cassino, design system, gatilhos e templates ficam associados a referências persistentes. O gerenciamento está em `/config` → **Armazenamento**; o painel bloqueia exclusões de objetos que ainda tenham referências ativas. URLs de fundo configuradas anteriormente continuam válidas.
+
+O serviço mede latência de upload/download, operações de catálogo e estatísticas, mantém cache de downloads com limite de memória e TTL e trata falhas do Blob sem impedir comandos que não usam assets. Os limites internos por servidor não alteram a quota real da conta Square Cloud; as estatísticas mostram ambos. Veja a [documentação oficial do Blob](https://help.squarecloud.app/en-us/article/blob-storage-what-it-is-and-how-to-use-it-cdn-p8jf04/) para capacidades e regras do provedor.
+
+## Lembretes, enquetes e sorteios persistentes
+
+Lembretes e enquetes são gravados no MongoDB, com IDs e status usados para evitar processamento duplicado. Sorteios guardam participantes, prazo, requisitos, vencedores e estado de encerramento; leases permitem recuperar sorteios em processamento após reinicialização. A atualização das mensagens usa o registro persistido e não cria anúncios novos ao repetir o processamento.
 
 ## Kiryu Intelligence · refinamento 2.2
 
@@ -93,16 +118,16 @@ O recurso começa desativado. Configure e teste a conexão em `/config` antes de
 
 ## Desempenho e validação
 
-`KIRYU_SLOW_OPERATION_MS` define o limite de aviso (padrão 750 ms). O bot agrega latência de acknowledgement/handler, comandos MongoDB e chamadas de IA em memória e descarrega contagem, média, pico e histograma no log. Estatísticas de IA e consumo de tokens também ficam persistidos por servidor. Isso não equivale a latência end-to-end em produção.
+`KIRYU_SLOW_OPERATION_MS` define o limite de aviso (padrão 750 ms). O bot agrega latência de acknowledgement/handler, comandos MongoDB, operações de Blob e chamadas de IA em memória e descarrega contagem, média, pico e histograma no log. Estatísticas de IA e consumo de tokens também ficam persistidos por servidor. Isso não equivale a latência end-to-end em produção.
 
-No benchmark local reproduzível (`node scripts/benchmark-local.js`, Node v26.13.1), o cartão PNG teve p50 de 87,734 ms sem cache e p95 de 0,024 ms com cache aquecido; serializar os 17 comandos teve p95 de 0,338 ms. A amostra usa fixture local, sem Discord, rede ou MongoDB; os resultados completos ficam em `artifacts/visual-previews/performance-local.json`.
+No benchmark local reproduzível (`node scripts/benchmark-local.js`, Node v26.13.1), o cartão PNG teve p50 de 77,739 ms sem cache e p95 de 0,014 ms com cache aquecido; serializar os 52 comandos teve p95 de 0,47 ms. A amostra usa fixture local, sem Discord, rede ou MongoDB; os resultados completos ficam em `artifacts/visual-previews/performance-local.json`.
 
-Execute `npm test` para a suíte local sem Discord/MongoDB. A integração do Gateway possui testes unitários com respostas simuladas; uma chamada real deve ser feita pelo teste de conexão em `/config` ou durante a validação operacional sem imprimir a chave. `artifacts/visual-previews/components-v2-fixtures.json` contém serializações dos builders reais. As telas são verificadas quanto aos limites de componentes, mas a renderização final depende do cliente Discord.
+Execute `npm test` para a suíte local sem Discord/MongoDB. `npm run blob:validate` faz uma rodada real de upload, download, substituição versionada e exclusão usando `SQUARECLOUD_API_KEY` e `SERVER_ID`; os objetos temporários são removidos ao final. A integração do Gateway possui testes unitários com respostas simuladas; uma chamada real deve ser feita pelo teste de conexão em `/config` ou durante a validação operacional sem imprimir a chave. `artifacts/visual-previews/components-v2-fixtures.json` contém serializações dos builders reais. As telas são verificadas quanto aos limites de componentes, mas a renderização final depende do cliente Discord.
 
 ## Refinamento pós-lançamento 2.1
 
-A Fase 2 permanece concluída. As rodadas 2.1 e 2.2 incorporam feedback de uso real e não substituem nem reduzem o escopo planejado para a Fase 3. As mudanças de perfil, notificações e Kiryu Intelligence estão descritas acima; cinco cartões de estilos diferentes estão disponíveis em `artifacts/visual-previews/`.
+A Fase 2.3 entrega armazenamento e ferramentas comunitárias. A economia ampliada, comércio, mercado e leilões permanecem reservados para a Fase 3. As mudanças de perfil, notificações, Kiryu Intelligence e fase atual estão descritas acima; os cartões e interfaces de demonstração ficam em `artifacts/visual-previews/`.
 
 ## Validação que depende de produção
 
-Este ambiente não tem sessão Discord autenticada nem conexão ao MongoDB do servidor. Portanto, as interações com permissões reais, persistência no banco de produção, renderização desktop/mobile e alcance dos assets/CDN devem ser conferidos no deploy. O Gateway possui validação real separada da suíte local; veja a etapa de disponibilidade registrada em `KIRYU_2.0.md`.
+O ambiente de desenvolvimento não tem sessão Discord autenticada nem conexão ao MongoDB do servidor. Portanto, as interações com permissões reais, persistência no banco de produção e renderização desktop/mobile devem ser conferidas no deploy. O SDK do Blob possui validação real separada da suíte local; o Gateway tem validação descrita em `KIRYU_2.0.md`.

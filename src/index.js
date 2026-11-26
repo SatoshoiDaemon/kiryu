@@ -7,6 +7,7 @@ const { loadEvents } = require('./handlers/loadEvents');
 const { stopVoiceXp } = require('./modules/voiceXp');
 const { cancelAllRequests, waitForRequests } = require('./modules/aiGateway');
 const { clearConversationState } = require('./modules/aiConversation');
+const { stopPersistentTasks } = require('./modules/persistentTasks');
 
 function validateRuntimeConfig() {
   const missing = [];
@@ -42,6 +43,7 @@ async function createBot() {
 
 async function shutdown(client) {
   stopVoiceXp();
+  stopPersistentTasks();
   cancelAllRequests();
   await waitForRequests();
   clearConversationState();

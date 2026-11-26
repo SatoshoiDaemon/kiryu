@@ -1,27 +1,27 @@
 {
-  "measuredAt": "2026-11-26T00:37:42.404Z",
+  "measuredAt": "2026-11-26T02:40:08.997Z",
   "node": "v26.13.1",
   "scope": "Local CPU-only microbenchmark. No Discord gateway, network avatar, or MongoDB calls.",
   "profilePngColdRender": {
     "count": 20,
-    "averageMs": 90.049,
-    "p50Ms": 87.734,
-    "p95Ms": 91.592,
-    "maxMs": 132.483
+    "averageMs": 79.316,
+    "p50Ms": 77.739,
+    "p95Ms": 80.733,
+    "maxMs": 114.565
   },
   "profilePngWarmCache": {
     "count": 100,
-    "averageMs": 0.011,
-    "p50Ms": 0.009,
-    "p95Ms": 0.024,
-    "maxMs": 0.084
+    "averageMs": 0.012,
+    "p50Ms": 0.011,
+    "p95Ms": 0.014,
+    "maxMs": 0.082
   },
   "slashSerialization": {
-    "commandsPerIteration": 17,
+    "commandsPerIteration": 52,
     "count": 100,
-    "averageMs": 0.336,
-    "p50Ms": 0.128,
-    "p95Ms": 0.338,
-    "maxMs": 13.918
+    "averageMs": 0.303,
+    "p50Ms": 0.277,
+    "p95Ms": 0.47,
+    "maxMs": 0.981
   }
 }

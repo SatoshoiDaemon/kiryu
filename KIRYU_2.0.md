@@ -1,8 +1,8 @@
-# Kiryu 2.0 — estado da Fase 2
+# Kiryu 2.0 — estado da Fase 2.3
 
 ## Resultado
 
-A Fase 2 está implementada no checkout. Esta rodada consolidou o painel `/config`, a árvore slash, as interfaces V2, os fluxos econômicos e a instrumentação. Não adiciona comércio entre membros, leilões, jogos novos, expansão de automações ou eventos; esses itens permanecem fora desta fase.
+A Fase 2 e os refinamentos 2.1–2.2 permanecem preservados. A Fase 2.3 adiciona a integração central de Square Cloud Blob, ferramentas comunitárias, administração, editor de mensagens, lembretes, enquetes e sorteios persistentes. A expansão econômica, comércio, mercado e leilões continua reservada para a Fase 3.
 
 ## Dados e compatibilidade
 
@@ -24,12 +24,16 @@ A Fase 2 está implementada no checkout. Esta rodada consolidou o painel `/confi
 - **Aparência:** paletas de sistema persistidas e aplicadas após a seleção e também na inicialização.
 - **Badges especiais:** cadastro, edição, atribuição e remoção pela equipe autorizada.
 - **Gatilhos:** texto exato, múltiplas respostas, ativação e remoção.
+- **Armazenamento:** upload, listagem paginada e filtrada, prévia, categoria, rename, substituição, referências, órfãos, limites, estatísticas, cache e exclusão protegida de assets do Blob.
+- **Utilitários:** ativação de lembretes, enquetes e AFK, limites de prazo e quantidade.
+- **Moderação e logs:** ativação, canais de registros e limite para alertas de advertências.
+- **Sorteios e templates:** ativação, canal de logs, duração máxima e consulta de modelos de mensagem.
 
 Valores livres usam modais; cargos, canais, categorias e ações fixas usam os componentes nativos apropriados. Ajustes pontuais de recursos permanecem em `/xp`, `/money`, `/orbs` e `/inventory` com checagem de permissão.
 
 ## Comandos
 
-Todos os nomes de comandos, grupos, subcomandos e opções são ingleses; descrições e respostas são portuguesas. `/profile [member]` consulta o cartão sem oferecer controles de edição; `/profile-edit` abre a oficina de personalização. `/badges assign|remove member` administra selos especiais. A consulta de XP fica em `/xp level view`, porque o Discord exige um subcomando filho quando `level` é um grupo. O inventário usa `/inventory view|add|remove`.
+Todos os nomes de comandos, grupos, subcomandos e opções são ingleses; descrições e respostas são portuguesas. `/profile [member]` consulta o cartão sem oferecer controles de edição; `/profile-edit` abre a oficina e aceita imagem do próprio Discord. `/badges assign|remove member` administra selos especiais. A consulta de XP fica em `/xp level view`, porque o Discord exige um subcomando filho quando `level` é um grupo. O inventário usa `/inventory view|add|remove`. `/roll` foi aprimorado sob o nome `/dice`; `/coinflip` e `/dice` são separados do cassino.
 
 Árvore completa e parâmetros: [README.md](README.md#árvore-definitiva-de-comandos). A sincronização usa substituição em lote dos comandos guild-scoped carregados, o que remove comandos antigos do registro ativo na próxima sincronização bem-sucedida.
 
@@ -44,7 +48,7 @@ Todos os nomes de comandos, grupos, subcomandos e opções são ingleses; descri
 
 Instrumentação agrega acknowledgement/handler e comandos MongoDB com contagem, média, pico e histograma. Consultas repetidas de configuração foram reduzidas ao reutilizar o documento já carregado nos cálculos de XP por mensagem e voz. Índices e cache de cartões/ranking permanecem aditivos. Nenhum ganho de produção é alegado: não há telemetria de gateway/MongoDB de produção nesta sessão.
 
-Benchmark CPU local reproduzível (`node scripts/benchmark-local.js`, Node v26.13.1): renderer PNG p50 de 87,734 ms sem cache e p95 de 0,024 ms com cache aquecido; serialização dos 17 comandos p95 de 0,338 ms. O relatório JSON inclui média, p50, p95 e pico. O ensaio usa fixture sem Discord, rede ou MongoDB e não representa latência de produção.
+Benchmark CPU local reproduzível (`node scripts/benchmark-local.js`, Node v26.13.1): renderer PNG p50 de 77,739 ms sem cache e p95 de 0,014 ms com cache aquecido; serializar a árvore de 52 comandos teve p95 de 0,47 ms. O relatório anterior de 17 comandos não mede esta árvore atual. O ensaio usa fixture sem Discord, rede ou MongoDB e não representa latência de produção.
 
 ## Validação reproduzível
 
@@ -54,7 +58,7 @@ Benchmark CPU local reproduzível (`node scripts/benchmark-local.js`, Node v26.1
 
 ## Fora do escopo desta fase
 
-Comércio entre jogadores, presentes/trocas, leilões, novos jogos, respostas automáticas com regex/regras de mídia e novos sistemas de eventos não fazem parte da conclusão da Fase 2.
+Comércio entre jogadores, mercado, presentes/trocas, leilões e expansão econômica seguem na Fase 3. Jogos novos e gatilhos com regex/regras complexas de mídia continuam fora da Fase 2.3.
 
 ## Rodada de refinamento 2.1 — pós-lançamento
 
@@ -80,3 +84,15 @@ A Fase 2 permanece concluída; esta rodada pós-lançamento não inicia nem redu
 - **Limites documentados por plano:** Standard: contexto 65.536 tokens, saída 6.144, concorrência 4; Pro: 131.072 / 8.192 / 8; Enterprise: 262.144 / 12.288 / 16. A Kiryu limita a saída localmente e trata limites/rate limits do provedor. O modelo `cubic` suporta `temperature`, `max_completion_tokens` e `reasoning_effort` conforme o contrato atual.
 - **Isolamento funcional:** nenhuma ferramenta econômica ou administrativa é exposta ao modelo. XP, daily, trabalho, lojas, cassino, transferências, comandos e anúncios de nível mantêm os serviços existentes. O recurso começa desativado e uma indisponibilidade do Gateway não altera esses sistemas.
 - **Validação:** testes locais cobrem autenticação simulada, parâmetros e modelo, streaming/usage, rate limits, cancelamento, métricas, limite local, duplicatas, filtros, contexto multiusuário e interface administrativa. Em 25/11/2026, uma chamada pelo próprio serviço foi autenticada com a chave somente em memória; o Gateway respondeu com `cubic`, aplicou o System Prompt de verificação e retornou 768 tokens (755 de entrada e 13 de saída). A chave e o conteúdo não foram registrados. MongoDB e sessão Discord de produção não estavam conectados neste checkout; a persistência real e as interações no servidor dependem do deploy.
+
+## Fase 2.3 — Storage & Utilities
+
+- **Square Cloud Blob:** SDK oficial `@squarecloud/blob`, namespace `kiryu/<guild>/<category>`, validação de imagem, upload, download com cache, metadados, listagem, estatísticas, substituição, exclusão, limites por servidor e metadados no MongoDB. IDs retornados pelo Blob são referências persistentes; URLs temporárias do Discord só são usadas para baixar anexos durante o upload. Fundos antigos por URL permanecem compatíveis.
+- **Assets integrados:** fundos de perfil enviados pelo membro, badges, molduras, cosméticos, arte de produtos, cassino, banners/divisórias do Design System, gatilhos e imagens de templates. O painel `/config` lista e filtra objetos, mostra prévias, referências e órfãos e bloqueia exclusão de objetos compartilhados.
+- **Comandos informativos:** `/avatar`, `/banner`, `/userinfo`, `/serverinfo`, `/roleinfo`, `/channelinfo`, `/emojiinfo`, `/stickerinfo`, `/botinfo`, `/ping`, `/uptime`, `/membercount` e `/help`.
+- **Ferramentas gerais:** `/remind`, `/timestamp`, `/poll`, `/choose`, `/random`, `/calculate`, `/translate`, `/color`, `/qr`, `/afk`, `/dice` e `/coinflip`. Tradução chama o Square Cloud AI Gateway via serviço de quotas existente. Lembretes, votos e ausências são persistidos.
+- **Administração:** `/purge`, `/announce`, `/embed`, `/giveaway`, `/slowmode`, `/lock`, `/unlock`, `/kick`, `/ban`, `/unban`, `/timeout`, `/warn` e `/warnings`. Checagens usam permissões nativas, cargos e hierarquia do Discord; auditoria no MongoDB inclui ator, alvo, motivo, data, operação e detalhes.
+- **Editor e templates:** editor interativo alterna entre embed e Components V2 e organiza Text Displays, Sections, separadores, galerias, thumbnails e botões de link. Prévia, publicação, edição de mensagens administradas e modelos importáveis/exportáveis são persistidos.
+- **Recuperação:** agendador processa lembretes, fechamento de enquetes e sorteios após reinício. Sorteios usam leases, grava vencedores antes de editar a mensagem e repetem atualização da mesma mensagem sem publicar duplicatas.
+- **Validação:** `npm test` inclui serialização dos comandos, hierarquia de moderação, parser seguro, validação de imagens, componentes gerenciados e tarefas persistentes. `npm run blob:validate` executou no serviço real upload, info, listagem, download, substituição versionada, estatísticas e exclusão usando a chave local sem exibi-la. Fixtures V2 e demonstração visual ficam em `artifacts/visual-previews/`.
+- **Escopo:** nenhuma funcionalidade da Fase 3 foi iniciada.

@@ -13,6 +13,7 @@ const economyItemSchema = new mongoose.Schema({
   description: { type: String, required: true, maxlength: 1000 },
   emoji: { type: String, default: '📦', maxlength: 64 },
   thumbnailUrl: { type: String, default: '', trim: true, maxlength: 500 },
+  thumbnailBlobId: { type: String, default: '' },
   currency: { type: String, enum: ['fragments', 'orbs'], required: true },
   orbType: { type: String, enum: ['green', 'blue', 'orange', 'red', 'black', 'gold'], default: null },
   price: { type: Number, required: true, min: 0, max: Number.MAX_SAFE_INTEGER, validate: (value) => value == null || Number.isSafeInteger(value) },

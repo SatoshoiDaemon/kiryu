@@ -58,7 +58,7 @@ describe('inicialização do bot', () => {
   test('conecta e inicializa o Mongo antes de iniciar o gateway Discord', async () => {
     const client = await createBot();
     expect(order).toEqual(['mongo-connect', 'database-init', 'discord-login']);
-    expect(client.commands.size).toBe(17);
+    expect(client.commands.size).toBe(52);
     expect(client.options.partials).toContain(Partials.Message);
     expect(client.listenerCount('interactionCreate')).toBe(1);
     await shutdown(client);

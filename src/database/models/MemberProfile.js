@@ -20,6 +20,7 @@ const memberProfileSchema = new mongoose.Schema({
   gradient: { type: Boolean },
   elementOpacity: { type: Number, min: 0, max: 100 },
   backgroundImageUrl: { type: String, default: '', maxlength: 500 },
+  backgroundBlobId: { type: String, default: '' },
   layout: { type: String, enum: ['classic', 'wide', 'portrait', 'folio', 'orbital'], default: 'classic' },
   xpBarStyle: { type: String, enum: ['rounded', 'segmented', 'orb', 'minimal', 'square'], default: 'rounded' },
   avatarStyle: { type: String, enum: ['circle', 'rounded', 'square', 'diamond', 'hex'], default: 'circle' },

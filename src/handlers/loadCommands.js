@@ -11,6 +11,9 @@ function loadCommands(root = path.join(__dirname, '..', 'commands')) {
       if (entry.isDirectory()) visit(fullPath);
       else if (entry.isFile() && entry.name.endsWith('.js')) {
         const command = require(fullPath);
+        for (const nested of command.commands || []) {
+          if (nested.data?.name && typeof nested.execute === 'function') commands.set(nested.data.name, nested);
+        }
         if (command.data?.name && typeof command.execute === 'function') commands.set(command.data.name, command);
       }
     }
