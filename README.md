@@ -6,7 +6,7 @@ Bot comunitário do Eternity Realms: progressão de XP, Fragmentos, Orbes, lojas
 
 - Node.js 20.19 ou superior.
 - MongoDB e aplicação Discord com intents Guild Members, Message Content e Guild Voice States.
-- Execute `npm ci`, copie `.env.example` para `.env`, preencha as credenciais, rode `npm run db:setup` e depois `npm start`.
+- Coloque `ca-certificate.crt`, `certificate.pem` e `private-key.key` em `certs/` na raiz do projeto. Copie `.env.example` para `.env`, preencha as credenciais, execute `npm ci`, `npm run db:setup` e `npm start`. Caminhos relativos definidos em `MONGODB_CA_FILE`, `MONGODB_CERT_FILE` e `MONGODB_KEY_FILE` são resolvidos a partir da raiz do projeto; caminhos absolutos também são aceitos.
 
 O banco padrão chama-se `kiryu`. A atualização de schemas é aditiva: XP e níveis, carteiras, banco, seis saldos de Orbe, inventários, catálogo e históricos existentes permanecem nos mesmos registros. O seed cria somente SKUs ausentes e não redefine preços, estoques nem snapshots comprados. O fator de conversão inicial segue em 10:1 até ser alterado no painel.
 

@@ -1,5 +1,4 @@
 const fs = require('node:fs');
-const tls = require('node:tls');
 const mongoose = require('mongoose');
 const config = require('../config');
 const logger = require('../logger');
@@ -28,29 +27,33 @@ const ManagedMessage = require('./models/ManagedMessage');
 const { seedEconomyStores } = require('./seeds/economyStores');
 const { setAssetOverrides } = require('../modules/components');
 
-function createTlsContext() {
-  const { ca, certificate, key } = config.certificates;
-  for (const file of [ca, certificate, key]) {
-    if (!fs.existsSync(file)) throw new Error('Certificado MongoDB ausente: ' + file);
+function readCertificate(file, label) {
+  try {
+    return fs.readFileSync(file);
+  } catch (error) {
+    const code = error?.code || error?.name || 'erro de leitura';
+    const wrapped = new Error('Não foi possível ler ' + label + ' em ' + file + ' (' + code + ').');
+    wrapped.certificateConfigurationError = true;
+    throw wrapped;
   }
+}
 
-  return tls.createSecureContext({
-    ca: fs.readFileSync(ca),
-    cert: fs.readFileSync(certificate),
-    key: fs.readFileSync(key),
-  });
+function createTlsOptions() {
+  const { ca, certificate, key } = config.certificates;
+  return {
+    tls: true,
+    ca: readCertificate(ca, 'o certificado de autoridade (CA) do MongoDB'),
+    cert: readCertificate(certificate, 'o certificado de cliente do MongoDB'),
+    key: readCertificate(key, 'a chave privada do MongoDB'),
+  };
 }
 
 async function connectDatabase() {
   try {
     if (!config.mongoUri) throw new Error('MONGODB_URI ausente');
-    const atlasUri = config.mongoUri.startsWith('mongodb+srv://') && new URL(config.mongoUri);
-    const useAtlasTls = atlasUri && atlasUri.hostname.toLowerCase().endsWith('.mongodb.net')
-      && atlasUri.searchParams.get('authMechanism')?.toUpperCase() !== 'MONGODB-X509';
     await mongoose.connect(config.mongoUri, {
       dbName: config.mongoDbName,
-      tls: true,
-      ...(useAtlasTls ? {} : { secureContext: createTlsContext() }),
+      ...createTlsOptions(),
       serverSelectionTimeoutMS: 15000,
       connectTimeoutMS: 15000,
       maxPoolSize: 10,
@@ -61,7 +64,8 @@ async function connectDatabase() {
     return mongoose.connection;
   } catch (error) {
     const code = error?.code || error?.name || 'erro desconhecido';
-    logger.error('Falha ao conectar ao MongoDB (' + code + '). Verifique a URI, certificados e acesso de rede.');
+    const details = error?.certificateConfigurationError ? error.message : code;
+    logger.error('Falha ao conectar ao MongoDB (' + details + '). Verifique a URI, certificados e acesso de rede.');
     throw new Error('Não foi possível conectar ao MongoDB. Consulte a configuração local sem compartilhar credenciais.');
   }
 }
@@ -107,7 +111,7 @@ async function closeDatabase() {
 }
 
 module.exports = {
-  connectDatabase, initializeDatabase, closeDatabase, UserXp, GuildConfig, createTlsContext, instrumentMongo,
+  connectDatabase, initializeDatabase, closeDatabase, UserXp, GuildConfig, createTlsOptions, instrumentMongo,
   EconomyAccount, EconomyItem, EconomyInventory, EconomyTransaction, EconomySettings, EconomyCollectRule, EconomyClaim, MemberProfile, BadgeDefinition, AIUsage, AIQuotaCounter,
   BlobObject, Reminder, CommunityPoll, Giveaway, AfkStatus, AdminAudit, ManagedMessage,
 };

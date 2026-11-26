@@ -3,6 +3,15 @@ const dotenv = require('dotenv');
 
 dotenv.config({ quiet: true });
 
+const projectRoot = path.resolve(__dirname, '..');
+
+function resolveProjectPath(value, defaultPath) {
+  const configuredPath = value || defaultPath;
+  return path.isAbsolute(configuredPath)
+    ? path.normalize(configuredPath)
+    : path.resolve(projectRoot, configuredPath);
+}
+
 const config = {
   token: process.env.DISCORD_TOKEN || process.env.DICORD_TOKEN,
   clientId: process.env.CLIENT_ID,
@@ -26,9 +35,9 @@ const config = {
   },
   timezone: 'America/Sao_Paulo',
   certificates: {
-    ca: path.resolve(process.env.MONGODB_CA_FILE || path.join(__dirname, '..', 'certs', 'ca-certificate.crt')),
-    certificate: path.resolve(process.env.MONGODB_CERT_FILE || path.join(__dirname, '..', 'certs', 'certificate.pem')),
-    key: path.resolve(process.env.MONGODB_KEY_FILE || path.join(__dirname, '..', 'certs', 'private-key.key')),
+    ca: resolveProjectPath(process.env.MONGODB_CA_FILE, 'certs/ca-certificate.crt'),
+    certificate: resolveProjectPath(process.env.MONGODB_CERT_FILE, 'certs/certificate.pem'),
+    key: resolveProjectPath(process.env.MONGODB_KEY_FILE, 'certs/private-key.key'),
   },
 };
 
