@@ -5,6 +5,7 @@ jest.mock('../src/modules/economyService', () => ({ getSettings: jest.fn() }));
 
 const { getGuildConfig } = require('../src/modules/xpService');
 const { getSettings } = require('../src/modules/economyService');
+const { BadgeDefinition } = require('../src/database');
 const config = require('../src/config');
 const { handleConfigInteraction } = require('../src/modules/configPanel');
 
@@ -63,6 +64,85 @@ describe('painel de configuração', () => {
     await expect(handleConfigInteraction(event)).resolves.toBe(true);
     expect(event.update).toHaveBeenCalledTimes(1);
     expect(event.update.mock.calls[0][0].components[0].toJSON().type).toBe(17);
+  });
+
+  test('mostra a política de anúncio dedicada e não pressupõe um canal de conversa', async () => {
+    getGuildConfig.mockResolvedValue({
+      messageXp: { min: 20, max: 100, cooldownMs: 5000, excludedChannelIds: [] },
+      voiceXp: { min: 20, max: 100, intervalMs: 300000, excludedChannelIds: [] },
+      buffs: [], stackBuffs: false, levelUp: { enabled: true, channelId: '', message: '' },
+    });
+    const event = interaction({ customId: 'config:nav', values: ['xp'] });
+    await handleConfigInteraction(event);
+    const output = event.update.mock.calls[0][0].components[0].toJSON();
+    expect(JSON.stringify(output)).toContain('nenhuma notificação será publicada');
+    expect(JSON.stringify(output)).toContain('Anúncio e canal');
+  });
+
+  test('salva o canal de nível escolhido pelo seletor nativo após validar permissões', async () => {
+    const channel = {
+      id: 'announcements', type: require('discord.js').ChannelType.GuildText,
+      permissionsFor: jest.fn(() => ({ has: () => true })),
+    };
+    const cfg = { levelUp: { enabled: true, channelId: '', message: '' }, save: jest.fn().mockResolvedValue(undefined) };
+    getGuildConfig.mockResolvedValue(cfg);
+    const event = interaction({
+      customId: 'config:xp:levelup:channel', values: ['announcements'],
+      isChannelSelectMenu: () => true, isStringSelectMenu: () => false,
+      guild: { roles: { cache: new Map() }, channels: { cache: new Map([['announcements', channel]]) }, members: { me: { id: 'bot' } } },
+    });
+    await handleConfigInteraction(event);
+    expect(cfg.levelUp.channelId).toBe('announcements');
+    expect(cfg.save).toHaveBeenCalledTimes(1);
+    expect(channel.permissionsFor).toHaveBeenCalled();
+    expect(JSON.stringify(event.update.mock.calls[0][0].components[0].toJSON())).toContain('<#announcements>');
+  });
+
+  test('recusa salvar um destino sem permissão de envio', async () => {
+    const channel = {
+      id: 'private', type: require('discord.js').ChannelType.GuildText,
+      permissionsFor: () => ({ has: (permission) => permission !== require('discord.js').PermissionFlagsBits.SendMessages }),
+    };
+    const cfg = { levelUp: { enabled: true, channelId: '', message: '' }, save: jest.fn() };
+    getGuildConfig.mockResolvedValue(cfg);
+    const event = interaction({
+      customId: 'config:xp:levelup:channel', values: ['private'], isChannelSelectMenu: () => true, isStringSelectMenu: () => false,
+      guild: { roles: { cache: new Map() }, channels: { cache: new Map([['private', channel]]) }, members: { me: { id: 'bot' } } },
+      followUp: jest.fn().mockResolvedValue(undefined),
+    });
+    const { followUpV2 } = require('../src/modules/components');
+    const followSpy = jest.spyOn(event, 'reply');
+    await handleConfigInteraction(event);
+    expect(cfg.save).not.toHaveBeenCalled();
+    expect(followSpy).toHaveBeenCalled();
+    expect(JSON.stringify(followSpy.mock.calls[0][0])).toContain('Enviar mensagens');
+  });
+
+  test('staff autorizada abre o catálogo especial e a seção de permissões continua exclusiva do proprietário', async () => {
+    getGuildConfig.mockResolvedValue({ adminRoleIds: ['staff-role'] });
+    jest.spyOn(BadgeDefinition, 'find').mockReturnValue({ sort: jest.fn().mockReturnThis(), skip: jest.fn().mockReturnThis(), limit: jest.fn().mockReturnThis(), lean: jest.fn().mockResolvedValue([]) });
+    jest.spyOn(BadgeDefinition, 'countDocuments').mockResolvedValue(0);
+    const staff = { id: 'staff-user' };
+    const member = { roles: { cache: new Map([['staff-role', {}]]) } };
+    const badgeEvent = interaction({ user: staff, member, values: ['badges'] });
+    await handleConfigInteraction(badgeEvent);
+    expect(JSON.stringify(badgeEvent.update.mock.calls[0][0].components[0].toJSON())).toContain('Badges especiais da staff');
+
+    const permissionEvent = interaction({ user: staff, member, values: ['permissions'] });
+    await handleConfigInteraction(permissionEvent);
+    expect(JSON.stringify(permissionEvent.reply.mock.calls[0][0])).toContain('exclusiva do proprietário');
+  });
+
+  test('abre o formulário de criação de badge especial pela categoria escolhida', async () => {
+    getGuildConfig.mockResolvedValue({ adminRoleIds: ['staff-role'] });
+    const event = interaction({
+      user: { id: 'staff-user' }, member: { roles: { cache: new Map([['staff-role', {}]]) } },
+      customId: 'config:badges:create:category', values: ['events'],
+      isStringSelectMenu: () => true, isButton: () => false, showModal: jest.fn(),
+    });
+    await handleConfigInteraction(event);
+    expect(event.showModal).toHaveBeenCalledTimes(1);
+    expect(event.showModal.mock.calls[0][0].toJSON().custom_id).toBe('config:modal:badge:create:events');
   });
 
   test('nega os componentes do painel a outros usuários', async () => {

@@ -2,9 +2,11 @@ jest.mock('../src/modules/xpService', () => ({
   awardVoiceXp: jest.fn(),
   getGuildConfig: jest.fn(),
 }));
+jest.mock('../src/modules/levelUpNotifications', () => ({ notifyLevelUp: jest.fn() }));
 
 const config = require('../src/config');
 const { awardVoiceXp, getGuildConfig } = require('../src/modules/xpService');
+const { notifyLevelUp } = require('../src/modules/levelUpNotifications');
 const { sweep, trackedMembers } = require('../src/modules/voiceXp');
 
 function makeClient(states) {
@@ -51,5 +53,17 @@ describe('XP por voz', () => {
     ]);
     await sweep(client, Date.now() + 3600000);
     expect(awardVoiceXp).not.toHaveBeenCalled();
+  });
+
+  test('encaminha level up por voz ao serviço do canal dedicado depois de conceder XP', async () => {
+    const member = { id: 'voice-user', user: { bot: false, toString: () => '<@voice-user>' }, voice: { channelId: 'voice-a' } };
+    const client = makeClient([{ member, channelId: 'voice-a' }]);
+    getGuildConfig.mockResolvedValue({ voiceXp: { min: 20, max: 100, intervalMs: 60000, excludedChannelIds: [] } });
+    const startedAt = Date.now();
+    await sweep(client, startedAt);
+    const result = { levelsGained: 1, level: 2, xp: 3, levelUp: { channelId: 'xp-feed', enabled: true } };
+    awardVoiceXp.mockResolvedValue(result);
+    await sweep(client, startedAt + 60000);
+    expect(notifyLevelUp).toHaveBeenCalledWith(client.guilds.cache.get(config.guildId), member.user, result);
   });
 });

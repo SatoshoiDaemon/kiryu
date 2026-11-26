@@ -45,6 +45,8 @@ describe('inicialização do bot', () => {
     expect(commands.get('money').data.toJSON().options.map((option) => option.name)).toEqual(expect.arrayContaining(['balance', 'transfer', 'history', 'deposit', 'withdraw', 'add', 'remove', 'set']));
     expect(commands.get('orbs').data.toJSON().options.map((option) => option.name)).toEqual(expect.arrayContaining(['balance', 'convert', 'add', 'remove', 'set']));
     expect(commands.has('profile')).toBe(true);
+    expect(commands.has('profile-edit')).toBe(true);
+    expect(commands.has('badges')).toBe(true);
     expect(commands.has('shop')).toBe(true);
     expect(commands.has('casino')).toBe(true);
     expect(commands.has('banco')).toBe(false);
@@ -56,7 +58,7 @@ describe('inicialização do bot', () => {
   test('conecta e inicializa o Mongo antes de iniciar o gateway Discord', async () => {
     const client = await createBot();
     expect(order).toEqual(['mongo-connect', 'database-init', 'discord-login']);
-    expect(client.commands.size).toBe(15);
+    expect(client.commands.size).toBe(17);
     expect(client.listenerCount('interactionCreate')).toBe(1);
     await shutdown(client);
     expect(database.closeDatabase).toHaveBeenCalled();

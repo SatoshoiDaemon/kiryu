@@ -25,5 +25,6 @@ test('substitui em lote o registro guild-scoped pela árvore atual', async () =>
   expect(route).toBe('application-guild-commands');
   expect(request.body.map((command) => command.name)).toContain('orbs');
   expect(request.body.map((command) => command.name)).not.toContain('orbes');
-  expect(request.body).toHaveLength(15);
+  expect(request.body.map((command) => command.name)).toEqual(expect.arrayContaining(['profile-edit', 'badges']));
+  expect(request.body).toHaveLength(17);
 });

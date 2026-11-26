@@ -1,6 +1,7 @@
 const { awardVoiceXp, getGuildConfig } = require('./xpService');
 const logger = require('../logger');
 const config = require('../config');
+const { notifyLevelUp } = require('./levelUpNotifications');
 
 const trackedMembers = new Map();
 const SWEEP_INTERVAL_MS = 30000;
@@ -66,8 +67,9 @@ async function sweep(client, now = Date.now()) {
       }
       if (now - tracking.lastAwardAt < guildConfig.voiceXp.intervalMs) continue;
       try {
-        await awardVoiceXp(guild.id, member.id, member, { guildConfig });
+        const result = await awardVoiceXp(guild.id, member.id, member, { guildConfig });
         tracking.lastAwardAt = now;
+        if (result?.levelsGained > 0) await notifyLevelUp(guild, member.user, result);
       } catch {
         logger.warn('Falha ao conceder XP de voz; o próximo ciclo tentará novamente.');
       }

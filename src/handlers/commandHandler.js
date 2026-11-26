@@ -5,6 +5,7 @@ const { handleConfigInteraction } = require('../modules/configPanel');
 const { replyV2, followUpV2, replyMessageV2 } = require('../modules/components');
 const { handleEconomyInteraction } = require('../modules/economyInteractions');
 const { handleProfileInteraction } = require('../commands/misc/profile');
+const { handleBadgeInteraction } = require('../commands/admin/badges');
 const metrics = require('../modules/performanceMetrics');
 const { say } = require('../modules/personality');
 const config = require('../config');
@@ -37,6 +38,7 @@ async function processInteraction(interaction, client) {
   if (interaction.isButton() || interaction.isAnySelectMenu() || interaction.isModalSubmit()) {
     try {
       if (await handleProfileInteraction(interaction)) return;
+      if (await handleBadgeInteraction(interaction)) return;
       if (await handleConfigInteraction(interaction)) return;
       await handleEconomyInteraction(interaction);
     } catch (error) {

@@ -1,7 +1,7 @@
 const { createCooldownTracker } = require('../modules/cooldown');
 const { awardMessageXp, getGuildConfig } = require('../modules/xpService');
 const { findTrigger, chooseResponse } = require('../modules/triggers');
-const { replyMessageV2 } = require('../modules/components');
+const { notifyLevelUp } = require('../modules/levelUpNotifications');
 const { handlePrefixMessage } = require('../handlers/commandHandler');
 const logger = require('../logger');
 
@@ -14,14 +14,7 @@ async function execute(message, client) {
   try {
     guildConfig = await getGuildConfig(message.guildId);
     const result = await awardMessageXp(message.guildId, message.author.id, message.member, message.channelId, cooldowns, Date.now(), { guildConfig });
-    if (result?.levelsGained > 0 && result.levelUp?.enabled !== false) {
-      const { say } = require('../modules/personality');
-      const levelUpMessage = String(result.levelUp?.message || say('levelUp'))
-        .replaceAll('{member}', message.author.toString())
-        .replaceAll('{level}', result.level.toLocaleString('pt-BR'))
-        .replaceAll('{xp}', result.xp.toLocaleString('pt-BR'));
-      await replyMessageV2(message, '# Um novo nível no Eternity\n' + levelUpMessage + '\n\n**Nível:** ' + result.level.toLocaleString('pt-BR') + '\n**XP neste nível:** ' + result.xp.toLocaleString('pt-BR'));
-    }
+    if (result?.levelsGained > 0) await notifyLevelUp(message.guild, message.author, result);
   } catch {
     logger.warn('Falha ao conceder XP por mensagem; a mensagem foi processada normalmente.');
   }

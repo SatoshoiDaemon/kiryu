@@ -104,13 +104,22 @@ async function awardMessageXp(guildId, userId, member, channelId, cooldowns, now
   if (!cooldowns.canAward(guildId + ':' + userId, settings.cooldownMs, now)) return null;
   const amount = randomInt(settings.min, settings.max + 1);
   const result = await grantXp(guildId, userId, amount, member, { guildConfig });
-  return { ...result, levelUp: { enabled: guildConfig.levelUp?.enabled !== false, message: guildConfig.levelUp?.message || '' } };
+  return { ...result, levelUp: {
+    enabled: guildConfig.levelUp?.enabled !== false,
+    message: guildConfig.levelUp?.message || '',
+    channelId: guildConfig.levelUp?.channelId || '',
+  } };
 }
 
 async function awardVoiceXp(guildId, userId, member, { guildConfig: providedConfig = null } = {}) {
   const guildConfig = providedConfig || await getGuildConfig(guildId);
   const amount = randomInt(guildConfig.voiceXp.min, guildConfig.voiceXp.max + 1);
-  return grantXp(guildId, userId, amount, member, { guildConfig });
+  const result = await grantXp(guildId, userId, amount, member, { guildConfig });
+  return { ...result, levelUp: {
+    enabled: guildConfig.levelUp?.enabled !== false,
+    message: guildConfig.levelUp?.message || '',
+    channelId: guildConfig.levelUp?.channelId || '',
+  } };
 }
 
 module.exports = {

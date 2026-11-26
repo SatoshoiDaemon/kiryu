@@ -30,6 +30,7 @@ const guildConfigSchema = new mongoose.Schema({
   levelUp: {
     enabled: { type: Boolean, default: true },
     message: { type: String, default: '', maxlength: 1800 },
+    channelId: { type: String, default: '' },
   },
   appearance: {
     palette: { type: String, enum: ['kiryu', 'eclipse', 'jade', 'ember'], default: 'kiryu' },

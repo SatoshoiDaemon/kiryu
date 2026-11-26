@@ -4,9 +4,11 @@ const {
   ButtonStyle,
   ChannelSelectMenuBuilder,
   ChannelType,
+  PermissionFlagsBits,
   ModalBuilder,
   RoleSelectMenuBuilder,
   StringSelectMenuBuilder,
+  UserSelectMenuBuilder,
   TextInputBuilder,
   TextInputStyle,
   MessageFlags,
@@ -15,14 +17,15 @@ const config = require('../config');
 const { getGuildConfig } = require('./xpService');
 const { getSettings } = require('./economyService');
 const { configureWork, configureDaily, configureOrbConversion, configureCasino } = require('./economyAdminService');
-const { EconomyItem } = require('../database');
-const { EconomyCollectRule } = require('../database');
+const { EconomyItem, EconomyCollectRule, MemberProfile, BadgeDefinition } = require('../database');
 const { createCatalogItem, editCatalogItem, createCollectRule, editCollectRule, removeCollectRule } = require('./economyAdminService');
 const { deleteCatalogItem } = require('./economyService');
 const { normalizeTriggerText } = require('./triggers');
 const { createContainer, replyV2, followUpV2 } = require('./components');
 const { ORBS, ORB_TYPES } = require('./economyUtils');
 const { PALETTES, applyPalette } = require('./appearance');
+const { isAuthorized } = require('./permissions');
+const { BADGE_CATEGORIES } = require('./profileCatalog');
 
 function button(customId, label, style = ButtonStyle.Secondary) {
   return new ButtonBuilder().setCustomId(customId).setLabel(label).setStyle(style);
@@ -36,20 +39,25 @@ function updatePanel(interaction, data) {
   return interaction.deferred ? interaction.editReply(data) : interaction.update(data);
 }
 
-function navRow() {
+function navRow(interaction = null) {
+  const sections = [
+    { label: 'Experiência e níveis', value: 'xp', description: 'XP, canais e buffs por cargos' },
+    { label: 'Permissões', value: 'permissions', description: 'Cargos autorizados a administrar o bot' },
+    { label: 'Daily e trabalho', value: 'rewards', description: 'Recompensas e intervalo de trabalho' },
+    { label: 'Lojas e itens', value: 'stores', description: 'Catálogo, preços, estoque e disponibilidade' },
+    { label: 'Recompensas por cargo', value: 'rules', description: 'Regras periódicas de coleta por cargo' },
+    { label: 'Gatilhos', value: 'triggers', description: 'Respostas automáticas configuráveis' },
+    { label: 'Cassino', value: 'casino', description: 'Ativar jogos, apostas e pagamentos' },
+    { label: 'Aparência', value: 'appearance', description: 'Paleta visual do servidor' },
+    { label: 'Badges especiais', value: 'badges', description: 'Criar, editar e atribuir badges da staff' },
+  ];
+  const visibleSections = interaction && interaction.user.id !== config.ownerId
+    ? sections.filter((section) => section.value === 'badges')
+    : sections;
   return row(new StringSelectMenuBuilder()
     .setCustomId('config:nav')
     .setPlaceholder('Abrir seção do painel')
-    .addOptions(
-      { label: 'Experiência e níveis', value: 'xp', description: 'XP, canais e buffs por cargos' },
-      { label: 'Permissões', value: 'permissions', description: 'Cargos autorizados a administrar o bot' },
-      { label: 'Daily e trabalho', value: 'rewards', description: 'Recompensas e intervalo de trabalho' },
-      { label: 'Lojas e itens', value: 'stores', description: 'Catálogo, preços, estoque e disponibilidade' },
-      { label: 'Recompensas por cargo', value: 'rules', description: 'Regras periódicas de coleta por cargo' },
-      { label: 'Gatilhos', value: 'triggers', description: 'Respostas automáticas configuráveis' },
-      { label: 'Cassino', value: 'casino', description: 'Ativar jogos, apostas e pagamentos' },
-      { label: 'Aparência', value: 'appearance', description: 'Paleta visual do servidor' },
-    ));
+    .addOptions(...visibleSections));
 }
 
 function container(text, rows = []) {
@@ -72,7 +80,7 @@ async function showHome(interaction, update = false) {
     'Painel administrativo do servidor Eternity Realms.',
     'Escolha uma seção para editar os dados persistidos no MongoDB.',
   ].join('\n');
-  const payload = { components: [container(content, [navRow()])], allowedMentions: { parse: [] } };
+  const payload = { components: [container(content, [navRow(interaction)])], allowedMentions: { parse: [] } };
   if (update) return updatePanel(interaction, payload);
   if (interaction.deferred || interaction.replied) {
     return interaction.editReply({ ...payload, flags: MessageFlags.IsComponentsV2 });
@@ -100,7 +108,9 @@ async function showXp(interaction, update = true) {
     buffs,
     'Com vários cargos: **' + (cfg.stackBuffs ? 'multiplicadores acumulados' : 'maior multiplicador') + '**.',
     '## Anúncio de nível',
-    (cfg.levelUp?.enabled === false ? 'Desativado.' : 'Ativado.') + (cfg.levelUp?.message ? '\nModelo personalizado configurado.' : '\nUsa uma fala contextual da Kiryu.') + ' Variáveis: `{member}`, `{level}` e `{xp}`.',
+    (cfg.levelUp?.enabled === false ? 'Desativado.' : 'Ativado.') + (cfg.levelUp?.message ? '\nModelo personalizado configurado.' : '\nUsa uma fala contextual da Kiryu.')
+      + (cfg.levelUp?.channelId ? '\nCanal: <#' + cfg.levelUp.channelId + '>.' : '\nSem canal de destino: nenhuma notificação será publicada.')
+      + ' Variáveis: `{member}`, `{level}` e `{xp}`.',
   ].join('\n\n');
   const rows = [
     navRow(),
@@ -108,8 +118,7 @@ async function showXp(interaction, update = true) {
       button('config:xp:message', 'XP por mensagem', ButtonStyle.Primary),
       button('config:xp:voice', 'XP por voz', ButtonStyle.Primary),
       button('config:xp:stack', cfg.stackBuffs ? 'Usar maior buff' : 'Acumular buffs', ButtonStyle.Secondary),
-      button('config:xp:levelup', 'Editar anúncio de nível', ButtonStyle.Primary),
-      button('config:xp:levelup:toggle', cfg.levelUp?.enabled === false ? 'Ativar anúncio' : 'Desativar anúncio'),
+      button('config:xp:levelup', 'Anúncio e canal', ButtonStyle.Primary),
     ),
     row(new ChannelSelectMenuBuilder().setCustomId('config:xp:exclude').setPlaceholder('Alternar exclusões de canais').setChannelTypes(ChannelType.GuildText, ChannelType.GuildVoice, ChannelType.GuildStageVoice).setMinValues(1).setMaxValues(10)),
     row(new RoleSelectMenuBuilder().setCustomId('config:xp:buff:add').setPlaceholder('Selecionar cargo para cadastrar buff').setMinValues(1).setMaxValues(1)),
@@ -125,6 +134,68 @@ async function showXp(interaction, update = true) {
       })))));
   }
   return updatePanel(interaction, { components: [container(content, rows)], allowedMentions: { parse: [] } });
+}
+
+async function showLevelUp(interaction, update = true) {
+  const cfg = await getGuildConfig(interaction.guildId);
+  const channelId = cfg.levelUp?.channelId || '';
+  const selectedChannel = channelId && interaction.guild?.channels?.cache?.get(channelId);
+  const destination = !channelId ? 'Nenhum canal configurado. As notificações ficarão desativadas até escolher um destino.'
+    : selectedChannel ? 'Destino: <#' + channelId + '>.' : 'O canal <#' + channelId + '> não está no cache do servidor. Reescolha um canal ou limpe a configuração.';
+  const content = [
+    '# Anúncio de subida de nível',
+    destination,
+    'Notificações de mensagem e voz são publicadas somente aqui. Sem canal configurado, a Kiryu não envia nada aos canais de conversa.',
+    (cfg.levelUp?.enabled === false ? '**Notificações desativadas.**' : '**Notificações ativadas.**')
+      + (cfg.levelUp?.message ? ' Modelo personalizado configurado.' : ' Usa uma fala contextual da Kiryu.'),
+    'Variáveis do modelo: `{member}`, `{level}` e `{xp}`.',
+  ].join('\n\n');
+  const channelSelect = new ChannelSelectMenuBuilder().setCustomId('config:xp:levelup:channel')
+    .setPlaceholder('Selecionar canal dedicado para XP e níveis')
+    .setChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+    .setMinValues(1).setMaxValues(1);
+  const rows = [navRow(), row(channelSelect), row(
+    button('config:xp:levelup:message', 'Editar mensagem', ButtonStyle.Primary),
+    button('config:xp:levelup:toggle', cfg.levelUp?.enabled === false ? 'Ativar notificações' : 'Desativar notificações', cfg.levelUp?.enabled === false ? ButtonStyle.Success : ButtonStyle.Secondary),
+    button('config:xp:levelup:clear', 'Limpar canal', ButtonStyle.Danger),
+  )];
+  const payload = { components: [container(content, rows)], allowedMentions: { parse: [] } };
+  return update ? updatePanel(interaction, payload) : interaction.editReply({ ...payload, flags: MessageFlags.IsComponentsV2 });
+}
+
+async function showBadges(interaction, update = true, page = 0) {
+  const [fetched, count] = await Promise.all([
+    BadgeDefinition.find({ guildId: interaction.guildId }).sort({ category: 1, name: 1 }).skip(page * 25).limit(26).lean(),
+    BadgeDefinition.countDocuments({ guildId: interaction.guildId }),
+  ]);
+  const badges = fetched.slice(0, 25);
+  const summary = badges.length
+    ? badges.map((badge) => '• ' + badge.symbol + ' **' + badge.name + '** · ' + (BADGE_CATEGORIES.find((category) => category.value === badge.category)?.label || badge.category)).join('\n')
+    : 'Nenhuma badge especial criada.';
+  const categorySelect = new StringSelectMenuBuilder().setCustomId('config:badges:create:category')
+    .setPlaceholder('Criar badge especial · escolher categoria')
+    .addOptions(BADGE_CATEGORIES.map((category) => ({ label: category.label, value: category.value })));
+  const rows = [navRow(interaction), row(categorySelect)];
+  if (badges.length) rows.push(row(new StringSelectMenuBuilder().setCustomId('config:badges:select:' + page).setPlaceholder('Editar, atribuir ou remover uma badge')
+    .addOptions(badges.map((badge) => ({ label: badge.name, value: String(badge._id), description: (badge.symbol + ' · ' + badge.category).slice(0, 100) })))));
+  if (page > 0 || fetched.length > 25) rows.push(row(
+    ...(page > 0 ? [button('config:badges:page:' + (page - 1), 'Página anterior')] : []),
+    ...(fetched.length > 25 ? [button('config:badges:page:' + (page + 1), 'Próxima página')] : []),
+  ));
+  const text = '# Badges especiais da staff\nCrie selos comemorativos ou de reconhecimento. Eles só aparecem nos perfis que a equipe selecionar e não são vinculados a raças, classes ou conquistas narrativas.\n\n**Badges:** ' + count + ' · **Página:** ' + (page + 1) + '\n\n' + summary;
+  return updatePanel(interaction, { components: [container(text, rows)], allowedMentions: { parse: [] } });
+}
+
+async function showBadgeDetail(interaction, badgeId, update = true) {
+  const badge = await BadgeDefinition.findOne({ guildId: interaction.guildId, _id: badgeId }).lean();
+  if (!badge) return showBadges(interaction, update);
+  const category = BADGE_CATEGORIES.find((item) => item.value === badge.category)?.label || badge.category;
+  const rows = [navRow(interaction), row(
+    button('config:badges:edit:' + badgeId, 'Editar badge', ButtonStyle.Primary),
+    button('config:badges:delete:' + badgeId, 'Remover badge', ButtonStyle.Danger),
+  ), row(new UserSelectMenuBuilder().setCustomId('config:badges:assign:' + badgeId).setPlaceholder('Atribuir a membros').setMinValues(1).setMaxValues(25)),
+  row(new UserSelectMenuBuilder().setCustomId('config:badges:remove:' + badgeId).setPlaceholder('Remover de membros').setMinValues(1).setMaxValues(25))];
+  return updatePanel(interaction, { components: [container('# ' + badge.symbol + ' ' + badge.name + '\n' + badge.description + '\n\n**Categoria:** ' + category + '\n**Tipo:** especial, atribuída pela staff.', rows)], allowedMentions: { parse: [] } });
 }
 
 async function showPermissions(interaction, update = true) {
@@ -353,7 +424,7 @@ function shortInput(customId, label, options = {}) {
     .setStyle(options.paragraph ? TextInputStyle.Paragraph : TextInputStyle.Short)
     .setRequired(options.required !== false);
   if (options.placeholder) input.setPlaceholder(options.placeholder);
-  if (options.value != null) input.setValue(String(options.value).slice(0, options.maxLength || 4000));
+  if (options.value != null && String(options.value).length) input.setValue(String(options.value).slice(0, options.maxLength || 4000));
   if (options.minLength) input.setMinLength(options.minLength);
   if (options.maxLength) input.setMaxLength(options.maxLength);
   return input;
@@ -375,26 +446,42 @@ async function handleConfigInteraction(interaction) {
   const customId = interaction.customId || '';
   if (!customId.startsWith('config:')) return false;
   const opensModal = interaction.isButton() && [
-    'config:xp:message', 'config:xp:voice', 'config:xp:levelup', 'config:rewards:conversion', 'config:casino:edit', 'config:trigger:create',
+    'config:xp:message', 'config:xp:voice', 'config:xp:levelup:message', 'config:rewards:conversion', 'config:casino:edit', 'config:trigger:create',
   ].includes(customId) || (interaction.isButton() && (
     customId === 'config:rewards:work' || customId.startsWith('config:rewards:daily:') || customId.startsWith('config:rules:edit:') ||
     customId.startsWith('config:trigger:text:') || customId.startsWith('config:trigger:response:add:') ||
-    customId.startsWith('config:trigger:response:edit:') || customId.startsWith('config:store:create:') || customId.startsWith('config:store:art:')
+    customId.startsWith('config:trigger:response:edit:') || customId.startsWith('config:store:create:') || customId.startsWith('config:store:art:') || customId.startsWith('config:badges:edit:')
   )) || (interaction.isRoleSelectMenu() && (customId === 'config:xp:buff:add' || customId.startsWith('config:rule:create:role:')));
   const scheduleModal = interaction.isStringSelectMenu() && (
     (customId.startsWith('config:rules:schedule:frequency:') && interaction.values?.[0] === 'interval') ||
     (customId.startsWith('config:rules:schedule:unit:') && interaction.values?.[0] === 'month') ||
-    customId === 'config:store:create:orbtype'
+    customId === 'config:store:create:orbtype' || customId === 'config:badges:create:category'
   );
   if (!opensModal && !interaction.deferred && !interaction.replied && (
     interaction.isButton?.() || interaction.isAnySelectMenu?.()
   ) && !scheduleModal && typeof interaction.deferUpdate === 'function') await interaction.deferUpdate();
-  if (interaction.user.id !== config.ownerId || interaction.guildId !== config.guildId) {
+  const authorized = interaction.guildId === config.guildId && (interaction.user.id === config.ownerId || await isAuthorized(interaction.member, interaction.user.id, interaction.guildId));
+  if (!authorized) {
     if (interaction.deferred || interaction.replied) {
       await followUpV2(interaction, 'Acesso negado.');
     } else {
       await replyV2(interaction, 'Acesso negado.', { ephemeral: true });
     }
+    return true;
+  }
+  const badgeConfigAction = customId === 'config:home'
+    || (customId === 'config:nav' && interaction.values?.[0] === 'badges')
+    || customId.startsWith('config:badges:')
+    || customId.startsWith('config:modal:badge:');
+  if (interaction.user.id !== config.ownerId && !badgeConfigAction) {
+    if (interaction.deferred || interaction.replied) await followUpV2(interaction, 'Essa área do painel é exclusiva do proprietário.');
+    else await replyV2(interaction, 'Essa área do painel é exclusiva do proprietário.', { ephemeral: true });
+    return true;
+  }
+  const ownerOnly = customId.startsWith('config:permissions:') || (customId === 'config:nav' && interaction.values?.[0] === 'permissions');
+  if (ownerOnly && interaction.user.id !== config.ownerId) {
+    if (interaction.deferred || interaction.replied) await followUpV2(interaction, 'A seção de permissões é exclusiva do proprietário.');
+    else await replyV2(interaction, 'A seção de permissões é exclusiva do proprietário.', { ephemeral: true });
     return true;
   }
   if (interaction.isModalSubmit() && customId.startsWith('config:modal:') && !interaction.deferred && !interaction.replied && typeof interaction.deferUpdate === 'function') {
@@ -413,9 +500,20 @@ async function handleConfigInteraction(interaction) {
         else if (value === 'triggers') await showTriggers(interaction);
         else if (value === 'casino') await showCasino(interaction);
         else if (value === 'appearance') await showAppearance(interaction);
+        else if (value === 'badges') await showBadges(interaction);
         else await showHome(interaction, true);
         return true;
       }
+      if (customId === 'config:badges:create:category') {
+        if (!BADGE_CATEGORIES.some((category) => category.value === value)) throw new RangeError('Escolha uma categoria de badge válida.');
+        await interaction.showModal(modal('config:modal:badge:create:' + value, 'Criar badge especial', [
+          shortInput('name', 'Nome exibido', { maxLength: 40, minLength: 1 }),
+          shortInput('symbol', 'Símbolo ou emoji · até 8 caracteres', { maxLength: 8, minLength: 1 }),
+          shortInput('description', 'Descrição curta', { paragraph: true, required: false, maxLength: 120 }),
+        ]));
+        return true;
+      }
+      if (customId.startsWith('config:badges:select:')) return showBadgeDetail(interaction, value);
       if (customId === 'config:appearance:palette') {
         if (!Object.hasOwn(PALETTES, value)) throw new RangeError('Escolha uma paleta disponível.');
         const cfg = await getGuildConfig(interaction.guildId);
@@ -567,6 +665,38 @@ async function handleConfigInteraction(interaction) {
         ]));
         return true;
       }
+    }
+
+    if (interaction.isUserSelectMenu?.() && customId.startsWith('config:badges:')) {
+      const [, , action, badgeId] = customId.split(':');
+      if (!['assign', 'remove'].includes(action)) return true;
+      if (!await BadgeDefinition.exists({ guildId: interaction.guildId, _id: badgeId })) throw new Error('Badge especial não encontrada.');
+      for (const userId of interaction.values) {
+        if (action === 'assign') {
+          await MemberProfile.findOneAndUpdate({ guildId: interaction.guildId, userId }, { $addToSet: { specialBadges: badgeId } }, { upsert: true, returnDocument: 'after', runValidators: true });
+        } else {
+          await MemberProfile.updateOne({ guildId: interaction.guildId, userId }, { $pull: { specialBadges: badgeId } });
+        }
+      }
+      await showBadgeDetail(interaction, badgeId);
+      return true;
+    }
+
+    if (interaction.isChannelSelectMenu() && customId === 'config:xp:levelup:channel') {
+      const channel = interaction.guild?.channels?.cache?.get(interaction.values[0]);
+      if (!channel || ![ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type)) {
+        throw new RangeError('Escolha um canal de texto válido deste servidor.');
+      }
+      const botMember = interaction.guild.members.me;
+      const permissions = botMember && channel.permissionsFor?.(botMember);
+      if (!permissions?.has(PermissionFlagsBits.ViewChannel) || !permissions?.has(PermissionFlagsBits.SendMessages)) {
+        throw new RangeError('A Kiryu precisa de Ver canal e Enviar mensagens no destino escolhido.');
+      }
+      const cfg = await getGuildConfig(interaction.guildId);
+      cfg.levelUp.channelId = channel.id;
+      await cfg.save();
+      await showLevelUp(interaction);
+      return true;
     }
 
     if (interaction.isChannelSelectMenu() && customId === 'config:xp:exclude') {
@@ -756,6 +886,30 @@ async function handleConfigInteraction(interaction) {
     }
 
     if (interaction.isModalSubmit()) {
+      if (customId.startsWith('config:modal:badge:create:')) {
+        const category = customId.split(':').at(-1);
+        if (!BADGE_CATEGORIES.some((item) => item.value === category)) throw new RangeError('Categoria de badge inválida.');
+        const name = interaction.fields.getTextInputValue('name').trim();
+        const symbol = interaction.fields.getTextInputValue('symbol').trim();
+        const description = interaction.fields.getTextInputValue('description').trim();
+        if (!name || !symbol) throw new RangeError('Nome e símbolo da badge são obrigatórios.');
+        await BadgeDefinition.create({ guildId: interaction.guildId, name, symbol, description, category });
+        await showBadges(interaction, false);
+        return true;
+      }
+      if (customId.startsWith('config:modal:badge:edit:')) {
+        const badgeId = customId.split(':').at(-1);
+        const badge = await BadgeDefinition.findOne({ guildId: interaction.guildId, _id: badgeId });
+        if (!badge) throw new Error('Badge especial não encontrada.');
+        const name = interaction.fields.getTextInputValue('name').trim();
+        const symbol = interaction.fields.getTextInputValue('symbol').trim();
+        const description = interaction.fields.getTextInputValue('description').trim();
+        if (!name || !symbol) throw new RangeError('Nome e símbolo da badge são obrigatórios.');
+        badge.name = name; badge.symbol = symbol; badge.description = description;
+        await badge.save();
+        await showBadgeDetail(interaction, badgeId, false);
+        return true;
+      }
       if (customId === 'config:modal:casino') {
         await configureCasino({ guildId: interaction.guildId, actorId: interaction.user.id, changes: {
           maxBet: parseNumber(interaction.fields.getTextInputValue('maxBet'), { min: 1, max: 1000000000, label: 'Aposta máxima' }),
@@ -893,7 +1047,7 @@ async function handleConfigInteraction(interaction) {
         const cfg = await getGuildConfig(interaction.guildId);
         cfg.levelUp.message = message;
         await cfg.save();
-        await showXp(interaction, false);
+        await showLevelUp(interaction, false);
         return true;
       }
       if (customId.startsWith('config:modal:buff:')) {
@@ -959,6 +1113,26 @@ async function handleConfigInteraction(interaction) {
     }
 
     if (interaction.isButton()) {
+      if (customId.startsWith('config:badges:page:')) return showBadges(interaction, true, Number(customId.split(':').at(-1)) || 0);
+      if (customId.startsWith('config:badges:edit:')) {
+        const badgeId = customId.split(':').at(-1);
+        const badge = await BadgeDefinition.findOne({ guildId: interaction.guildId, _id: badgeId }).lean();
+        if (!badge) throw new Error('Badge especial não encontrada.');
+        await interaction.showModal(modal('config:modal:badge:edit:' + badgeId, 'Editar badge especial', [
+          shortInput('name', 'Nome exibido', { value: badge.name, maxLength: 40, minLength: 1 }),
+          shortInput('symbol', 'Símbolo ou emoji', { value: badge.symbol, maxLength: 8, minLength: 1 }),
+          shortInput('description', 'Descrição curta', { paragraph: true, required: false, value: badge.description, maxLength: 120 }),
+        ]));
+        return true;
+      }
+      if (customId.startsWith('config:badges:delete:')) {
+        const badgeId = customId.split(':').at(-1);
+        await BadgeDefinition.deleteOne({ guildId: interaction.guildId, _id: badgeId });
+        await MemberProfile.updateMany({ guildId: interaction.guildId }, { $pull: { specialBadges: badgeId } });
+        await showBadges(interaction);
+        return true;
+      }
+      if (customId.startsWith('config:badges:')) return showBadgeDetail(interaction, customId.split(':').at(-1));
       if (customId === 'config:home') return showHome(interaction, true);
       if (customId === 'config:triggers') return showTriggers(interaction);
       if (customId.startsWith('config:trigger:detail:')) return showTriggerDetail(interaction, customId.split(':').at(-1));
@@ -980,18 +1154,26 @@ async function handleConfigInteraction(interaction) {
         ]));
         return true;
       }
-      if (customId === 'config:xp:levelup') {
+      if (customId === 'config:xp:levelup') return showLevelUp(interaction);
+      if (customId === 'config:xp:levelup:message') {
         const cfg = await getGuildConfig(interaction.guildId);
         await interaction.showModal(modal('config:modal:levelup', 'Anúncio de subida de nível', [
           shortInput('message', 'Texto · use {member}, {level} e {xp}', { paragraph: true, required: false, maxLength: 1800, value: cfg.levelUp?.message || '' }),
         ]));
         return true;
       }
+      if (customId === 'config:xp:levelup:clear') {
+        const cfg = await getGuildConfig(interaction.guildId);
+        cfg.levelUp.channelId = '';
+        await cfg.save();
+        await showLevelUp(interaction);
+        return true;
+      }
       if (customId === 'config:xp:levelup:toggle') {
         const cfg = await getGuildConfig(interaction.guildId);
         cfg.levelUp.enabled = cfg.levelUp.enabled === false;
         await cfg.save();
-        await showXp(interaction);
+        await showLevelUp(interaction);
         return true;
       }
       if (customId === 'config:xp:stack') {
@@ -1078,12 +1260,12 @@ async function handleConfigInteraction(interaction) {
 }
 
 async function executeConfigCommand(interaction) {
-  if (interaction.user.id !== config.ownerId || interaction.guildId !== config.guildId) {
-    await replyV2(interaction, 'Este painel é exclusivo do proprietário do bot.', { ephemeral: true });
+  if (interaction.guildId !== config.guildId || (interaction.user.id !== config.ownerId && !await isAuthorized(interaction.member, interaction.user.id, interaction.guildId))) {
+    await replyV2(interaction, 'Este painel exige o proprietário ou um cargo administrativo autorizado.', { ephemeral: true });
     return;
   }
   await getGuildConfig(interaction.guildId);
   await showHome(interaction);
 }
 
-module.exports = { executeConfigCommand, handleConfigInteraction, showHome, showXp, showPermissions, showRewards, showStores, showTriggers, showTriggerDetail };
+module.exports = { executeConfigCommand, handleConfigInteraction, showHome, showXp, showLevelUp, showBadges, showBadgeDetail, showPermissions, showRewards, showStores, showTriggers, showTriggerDetail };

@@ -15,6 +15,7 @@ const EconomySettings = require('./models/EconomySettings');
 const EconomyCollectRule = require('./models/EconomyCollectRule');
 const EconomyClaim = require('./models/EconomyClaim');
 const MemberProfile = require('./models/MemberProfile');
+const BadgeDefinition = require('./models/BadgeDefinition');
 const { seedEconomyStores } = require('./seeds/economyStores');
 
 function createTlsContext() {
@@ -69,7 +70,7 @@ function instrumentMongo(client) {
 
 async function initializeDatabase() {
   if (mongoose.connection.readyState !== 1) throw new Error('MongoDB não está conectado.');
-  const models = [UserXp, GuildConfig, EconomyAccount, EconomyItem, EconomyInventory, EconomyTransaction, EconomySettings, EconomyCollectRule, EconomyClaim, MemberProfile];
+  const models = [UserXp, GuildConfig, EconomyAccount, EconomyItem, EconomyInventory, EconomyTransaction, EconomySettings, EconomyCollectRule, EconomyClaim, MemberProfile, BadgeDefinition];
   await Promise.all(models.map((model) => model.createCollection().catch(ignoreNamespaceExists)));
   await Promise.all(models.map((model) => model.createIndexes()));
   if (config.guildId) {
@@ -96,5 +97,5 @@ async function closeDatabase() {
 
 module.exports = {
   connectDatabase, initializeDatabase, closeDatabase, UserXp, GuildConfig, createTlsContext, instrumentMongo,
-  EconomyAccount, EconomyItem, EconomyInventory, EconomyTransaction, EconomySettings, EconomyCollectRule, EconomyClaim, MemberProfile,
+  EconomyAccount, EconomyItem, EconomyInventory, EconomyTransaction, EconomySettings, EconomyCollectRule, EconomyClaim, MemberProfile, BadgeDefinition,
 };

@@ -9,7 +9,7 @@ describe('árvore definitiva de comandos slash', () => {
 
   test('serializa todos os comandos e mantém nomes de comandos, grupos e opções em inglês', () => {
     const definitions = [...commands.values()].map((command) => command.data.toJSON());
-    expect(definitions).toHaveLength(15);
+    expect(definitions).toHaveLength(17);
     for (const definition of definitions) {
       expect(definition.name).toMatch(/^[a-z][a-z0-9_-]*$/);
       for (const name of namesOfOptions(definition.options)) expect(name).toMatch(/^[a-z][a-z0-9_-]*$/);
@@ -24,7 +24,7 @@ describe('árvore definitiva de comandos slash', () => {
 
   test('usa raízes inglesas e mantém descrições em português', () => {
     const names = [...commands.keys()].sort();
-    expect(names).toEqual(['casino', 'choose', 'coinflip', 'config', 'daily', 'inventory', 'money', 'orbs', 'profile', 'ranking', 'rewards', 'roll', 'shop', 'work', 'xp']);
+    expect(names).toEqual(['badges', 'casino', 'choose', 'coinflip', 'config', 'daily', 'inventory', 'money', 'orbs', 'profile', 'profile-edit', 'ranking', 'rewards', 'roll', 'shop', 'work', 'xp']);
     expect(names).not.toContain('orbes');
     expect(names).not.toContain('economia');
     expect(commands.get('orbs').data.description).toContain('Orbes');
