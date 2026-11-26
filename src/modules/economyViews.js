@@ -199,7 +199,7 @@ function inventoryDetailContainer(entry, ownerId, userId, page = 0, filter = 'al
     .addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder()
       .setURL(item.thumbnailUrl && /^https:\/\//i.test(item.thumbnailUrl) ? item.thumbnailUrl : systemAsset('store'))
       .setDescription('Arte de ' + item.name)))
-    .addTextDisplayComponents(new TextDisplayBuilder().setContent(description + selectedChoice + '\n\n**Quantidade:** ' + entry.quantity.toLocaleString('pt-BR') + '\n**Comportamento:** ' + (item.usable ? (item.consumeOnUse === false ? 'Pode ser usado e permanece no inventário.' : 'Pode ser usado; a configuração define consumo.') : 'O efeito é interpretado dentro do RP textual.')))
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(description + selectedChoice + '\n\n**SKU:** `' + entry.sku + '` · use em `/market sell`\n**Quantidade:** ' + entry.quantity.toLocaleString('pt-BR') + '\n**Comportamento:** ' + (item.usable ? (item.consumeOnUse === false ? 'Pode ser usado e permanece no inventário.' : 'Pode ser usado; a configuração define consumo.') : 'O efeito é interpretado dentro do RP textual.')))
     .addActionRowComponents(new ActionRowBuilder().addComponents(use, new ButtonBuilder().setCustomId('econ:inventory:back:' + ownerId + ':' + userId + ':' + page + ':' + filter).setLabel('Voltar').setStyle(ButtonStyle.Secondary)));
   return decorateContainer(detail);
 }

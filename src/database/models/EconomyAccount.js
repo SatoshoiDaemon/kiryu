@@ -17,8 +17,18 @@ const economyAccountSchema = new mongoose.Schema({
   orbs: { type: orbSchema, default: () => ({}) },
   lastWorkAt: { type: Date, default: null },
   lastDailyAt: { type: Date, default: null },
+  lastCrimeAt: { type: Date, default: null },
+  lastAdventureAt: { type: Date, default: null },
+  lastPassiveAt: { type: Date, default: null },
+  lastCasinoAt: { type: Date, default: null },
+  casinoLossDay: { type: String, default: null, maxlength: 10 },
+  casinoLossToday: { type: Number, default: 0, min: 0, max: Number.MAX_SAFE_INTEGER, validate: (value) => value == null || Number.isSafeInteger(value) },
+  activeCasinoSessionId: { type: String, default: null, maxlength: 80 },
+  casinoReservedPayout: { type: Number, default: 0, min: 0, max: Number.MAX_SAFE_INTEGER, validate: (value) => value == null || Number.isSafeInteger(value) },
   // Calendar key is additive; lastDailyAt is retained for old records/history.
   dailyClaimDay: { type: String, default: null, maxlength: 10 },
+  // Short idempotency window for account mutations performed without replica-set transactions.
+  recentOperationKeys: { type: [String], default: [] },
 }, { timestamps: true, versionKey: false });
 
 economyAccountSchema.index({ guildId: 1, userId: 1 }, { unique: true });

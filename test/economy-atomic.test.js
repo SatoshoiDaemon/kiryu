@@ -62,25 +62,11 @@ describe('atomicidade das operações econômicas', () => {
     expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('histórico'));
   });
 
-  test('settings existentes recebem as faixas diárias aleatórias uma só vez', async () => {
-    const migrated = { daily: { rewardRanges: { fragments: { min: 400, max: 1000 } }, rangesConfigured: true } };
-    db.EconomySettings.findById.mockResolvedValue({ daily: { rangesConfigured: false } });
-    db.EconomySettings.findOneAndUpdate.mockResolvedValue(migrated);
-    await expect(getSettings('g')).resolves.toBe(migrated);
-    expect(db.EconomySettings.findOneAndUpdate).toHaveBeenCalledWith(
-      { _id: 'g', 'daily.rangesConfigured': { $ne: true } },
-      { $set: {
-        'daily.rewardRanges.fragments': { min: 400, max: 1000 },
-        'daily.rewardRanges.orbs.green': { min: 10, max: 100 },
-        'daily.rewardRanges.orbs.blue': { min: 10, max: 50 },
-        'daily.rewardRanges.orbs.orange': { min: 5, max: 10 },
-        'daily.rewardRanges.orbs.red': { min: 0, max: 0 },
-        'daily.rewardRanges.orbs.black': { min: 0, max: 0 },
-        'daily.rewardRanges.orbs.gold': { min: 0, max: 0 },
-        'daily.rangesConfigured': true,
-      } },
-      { returnDocument: 'after' },
-    );
+  test('preserva recompensas diárias existentes sem reescrevê-las durante a leitura', async () => {
+    const configured = { daily: { rewardRanges: { fragments: { min: 730, max: 910 }, orbs: { green: { min: 7, max: 13 } } }, rangesConfigured: false } };
+    db.EconomySettings.findById.mockResolvedValue(configured);
+    await expect(getSettings('g')).resolves.toBe(configured);
+    expect(db.EconomySettings.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
   test('operações multirregistro executam sem iniciar sessão ou transação Mongo', async () => {

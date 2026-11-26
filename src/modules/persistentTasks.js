@@ -3,6 +3,13 @@ const { Reminder, Giveaway, CommunityPoll } = require('../database');
 const { replyMessageV2 } = require('./components');
 const metrics = require('./performanceMetrics');
 const { randomInt } = require('node:crypto');
+const { replayPendingEconomicOperations } = require('./economyService');
+const { recoverCasinoSessions, expireCasinoSessions } = require('./casinoSessionService');
+const { processMarketListings } = require('./economyExchangeService');
+const { processTradeSessions } = require('./economyTradeService');
+const { processAuctions } = require('./auctionService');
+const { processGameRooms } = require('./gameRoomService');
+const { processLotteries } = require('./lotteryService');
 
 let timer = null;
 let running = false;
@@ -128,6 +135,14 @@ async function runPersistentTasks(client) {
   running = true;
   const started = metrics.performance.now();
   try {
+    await replayPendingEconomicOperations();
+    await recoverCasinoSessions();
+    await expireCasinoSessions();
+    await processMarketListings();
+    await processTradeSessions();
+    await processAuctions();
+    await processGameRooms();
+    await processLotteries();
     await processReminders(client);
     await processGiveaways(client);
     await processPolls(client);

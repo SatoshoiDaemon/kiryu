@@ -13,6 +13,11 @@ const EconomyTransaction = require('./models/EconomyTransaction');
 const EconomySettings = require('./models/EconomySettings');
 const EconomyCollectRule = require('./models/EconomyCollectRule');
 const EconomyClaim = require('./models/EconomyClaim');
+const EconomyOperation = require('./models/EconomyOperation');
+const MarketListing = require('./models/MarketListing');
+const TradeSession = require('./models/TradeSession');
+const Auction = require('./models/Auction');
+const GameSession = require('./models/GameSession');
 const MemberProfile = require('./models/MemberProfile');
 const BadgeDefinition = require('./models/BadgeDefinition');
 const AIUsage = require('./models/AIUsage');
@@ -84,7 +89,7 @@ function instrumentMongo(client) {
 
 async function initializeDatabase() {
   if (mongoose.connection.readyState !== 1) throw new Error('MongoDB não está conectado.');
-  const models = [UserXp, GuildConfig, EconomyAccount, EconomyItem, EconomyInventory, EconomyTransaction, EconomySettings, EconomyCollectRule, EconomyClaim, MemberProfile, BadgeDefinition, AIUsage, AIQuotaCounter, BlobObject, Reminder, CommunityPoll, Giveaway, AfkStatus, AdminAudit, ManagedMessage];
+  const models = [UserXp, GuildConfig, EconomyAccount, EconomyItem, EconomyInventory, EconomyTransaction, EconomySettings, EconomyCollectRule, EconomyClaim, EconomyOperation, MarketListing, TradeSession, Auction, GameSession, MemberProfile, BadgeDefinition, AIUsage, AIQuotaCounter, BlobObject, Reminder, CommunityPoll, Giveaway, AfkStatus, AdminAudit, ManagedMessage];
   await Promise.all(models.map((model) => model.createCollection().catch(ignoreNamespaceExists)));
   await Promise.all(models.map((model) => model.createIndexes()));
   if (config.guildId) {
@@ -112,6 +117,6 @@ async function closeDatabase() {
 
 module.exports = {
   connectDatabase, initializeDatabase, closeDatabase, UserXp, GuildConfig, createTlsOptions, instrumentMongo,
-  EconomyAccount, EconomyItem, EconomyInventory, EconomyTransaction, EconomySettings, EconomyCollectRule, EconomyClaim, MemberProfile, BadgeDefinition, AIUsage, AIQuotaCounter,
+  EconomyAccount, EconomyItem, EconomyInventory, EconomyTransaction, EconomySettings, EconomyCollectRule, EconomyClaim, EconomyOperation, MarketListing, TradeSession, Auction, GameSession, MemberProfile, BadgeDefinition, AIUsage, AIQuotaCounter,
   BlobObject, Reminder, CommunityPoll, Giveaway, AfkStatus, AdminAudit, ManagedMessage,
 };

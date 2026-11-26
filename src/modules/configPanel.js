@@ -19,7 +19,7 @@ const {
 const config = require('../config');
 const { getGuildConfig } = require('./xpService');
 const { getSettings } = require('./economyService');
-const { configureWork, configureDaily, configureOrbConversion, configureCasino } = require('./economyAdminService');
+const { configureWork, configureDaily, configureOrbConversion, configureCasino, configureIncome, configureEconomy } = require('./economyAdminService');
 const { EconomyItem, EconomyCollectRule, MemberProfile, BadgeDefinition, BlobObject } = require('../database');
 const { createCatalogItem, editCatalogItem, createCollectRule, editCollectRule, removeCollectRule } = require('./economyAdminService');
 const { deleteCatalogItem } = require('./economyService');
@@ -52,6 +52,7 @@ function navRow(interaction = null) {
     { label: 'Experiência e níveis', value: 'xp', description: 'XP, canais e buffs por cargos' },
     { label: 'Permissões', value: 'permissions', description: 'Cargos autorizados a administrar o bot' },
     { label: 'Daily e trabalho', value: 'rewards', description: 'Recompensas e intervalo de trabalho' },
+    { label: 'Economia e comércio', value: 'economy', description: 'Limites, mercado, trocas e leilões' },
     { label: 'Lojas e itens', value: 'stores', description: 'Catálogo, preços, estoque e disponibilidade' },
     { label: 'Recompensas por cargo', value: 'rules', description: 'Regras periódicas de coleta por cargo' },
     { label: 'Gatilhos', value: 'triggers', description: 'Respostas automáticas configuráveis' },
@@ -258,11 +259,17 @@ async function showRewards(interaction, update = true) {
   const settings = await getSettings(interaction.guildId);
   const daily = settings.daily.rewardRanges;
   const range = (value) => value.min === value.max ? String(value.min) : value.min + '–' + value.max;
+  const adventure = settings.adventure || {};
+  const crime = settings.crime || {};
+  const passive = settings.passiveIncome || {};
   const content = [
     '# Recompensas · Fragmentos e Orbes',
     'Daily reinicia à meia-noite de São Paulo. O cooldown antigo não controla mais a coleta.',
-    '**Daily** · Fragmentos ' + range(daily.fragments) + ' · Orbes: Verde ' + range(daily.orbs.green) + ', Azul ' + range(daily.orbs.blue) + ', Laranja ' + range(daily.orbs.orange) + ', Vermelha ' + range(daily.orbs.red) + ', Preta ' + range(daily.orbs.black) + ', Dourada ' + range(daily.orbs.gold),
-    '**Trabalho** · ' + settings.work.min + '–' + settings.work.max + ' Fragmentos · intervalo ' + Math.round(settings.work.cooldownMs / 60000) + ' min',
+    '**Daily** · ' + (settings.daily.enabled === false ? 'pausado' : 'ativo') + ' · Fragmentos ' + range(daily.fragments) + ' · Orbes: Verde ' + range(daily.orbs.green) + ', Azul ' + range(daily.orbs.blue) + ', Laranja ' + range(daily.orbs.orange) + ', Vermelha ' + range(daily.orbs.red) + ', Preta ' + range(daily.orbs.black) + ', Dourada ' + range(daily.orbs.gold),
+    '**Trabalho** · ' + (settings.work.enabled === false ? 'pausado' : 'ativo') + ' · ' + settings.work.min + '–' + settings.work.max + ' Fragmentos · intervalo ' + Math.round(settings.work.cooldownMs / 60000) + ' min',
+    '**Expedição** · ' + (adventure.enabled === false ? 'pausada' : range({ min: adventure.min ?? 80, max: adventure.max ?? 800 }) + ' Fragmentos') + ' · intervalo ' + Math.round((adventure.cooldownMs ?? 7200000) / 60000) + ' min',
+    '**Golpe fictício** · ' + (crime.enabled === false ? 'pausado' : range({ min: crime.min ?? 100, max: crime.max ?? 1200 }) + ' Fragmentos · falha ' + (crime.failChancePercent ?? 35) + '% · multa ' + range({ min: crime.fineMin ?? 50, max: crime.fineMax ?? 400 })) + ' · intervalo ' + Math.round((crime.cooldownMs ?? 10800000) / 60000) + ' min',
+    '**Renda passiva** · ' + (passive.enabled ? (passive.amount || 0) + ' Fragmentos a cada ' + Math.round((passive.intervalMs || 86400000) / 3600000) + ' h' : 'desativada'),
     '**Conversão de Orbes** · ' + (settings.orbs?.conversionRate || 10) + ':1 para a categoria seguinte',
   ].join('\n\n');
   const rows = [navRow(), row(
@@ -271,7 +278,41 @@ async function showRewards(interaction, update = true) {
     button('config:rewards:daily:blue', 'Daily · Azul e Laranja', ButtonStyle.Success),
     button('config:rewards:daily:red', 'Daily · Vermelha', ButtonStyle.Success),
     button('config:rewards:daily:rare', 'Daily · Preta e Dourada', ButtonStyle.Success),
-  ), row(button('config:rewards:conversion', 'Editar taxa de conversão', ButtonStyle.Primary))];
+  ), row(
+    button('config:rewards:toggle-work', settings.work.enabled === false ? 'Ativar trabalho' : 'Pausar trabalho', settings.work.enabled === false ? ButtonStyle.Success : ButtonStyle.Secondary),
+    button('config:rewards:toggle-daily', settings.daily.enabled === false ? 'Ativar daily' : 'Pausar daily', settings.daily.enabled === false ? ButtonStyle.Success : ButtonStyle.Secondary),
+  ), row(
+    button('config:rewards:adventure', 'Editar expedição', ButtonStyle.Primary),
+    button('config:rewards:crime', 'Editar golpe fictício', ButtonStyle.Primary),
+    button('config:rewards:passive:toggle', passive.enabled ? 'Desativar renda passiva' : 'Ativar renda passiva', passive.enabled ? ButtonStyle.Secondary : ButtonStyle.Success),
+    button('config:rewards:passive:edit', 'Editar renda passiva', ButtonStyle.Primary),
+  ), row(
+    button('config:rewards:adventure:toggle', adventure.enabled === false ? 'Ativar expedições' : 'Pausar expedições', adventure.enabled === false ? ButtonStyle.Success : ButtonStyle.Secondary),
+    button('config:rewards:crime:toggle', crime.enabled === false ? 'Ativar golpes fictícios' : 'Pausar golpes fictícios', crime.enabled === false ? ButtonStyle.Success : ButtonStyle.Secondary),
+    button('config:rewards:conversion', 'Editar taxa de conversão', ButtonStyle.Primary),
+  )];
+  const payload = { components: [container(content, rows)], allowedMentions: { parse: [] } };
+  return update ? updatePanel(interaction, payload) : interaction.editReply({ ...payload, flags: MessageFlags.IsComponentsV2 });
+}
+
+async function showEconomy(interaction, update = true) {
+  const settings = await getSettings(interaction.guildId);
+  const economy = settings.economy || {};
+  const format = (value) => Number(value || 0).toLocaleString('pt-BR');
+  const content = [
+    '# Economia · limites e comércio',
+    'O saldo inicial vale apenas para contas criadas depois de salvar; registros existentes permanecem intactos. Limites e taxas passam a valer nas próximas operações.',
+    '**Inicial** · carteira ' + format(economy.initialWallet) + ' · banco ' + format(economy.initialBank),
+    '**Limites** · carteira ' + format(economy.walletLimit) + ' · banco ' + format(economy.bankLimit),
+    '**Mercado** · taxa ' + (economy.marketFeePercent ?? 5) + '% · anúncio por ' + (economy.marketListingDays || 7) + ' dias · até ' + (economy.maxListingsPerMember || 10) + ' ativos por pessoa',
+    '**Leilões e trocas** · taxa de leilão ' + (economy.auctionFeePercent ?? 5) + '% · lance mínimo adicional ' + format(economy.auctionMinIncrement || 10) + ' · convite expira em ' + (economy.tradeExpiryHours || 24) + ' h',
+    '**Loteria** · taxa do prêmio ' + (economy.lotteryFeePercent ?? 0) + '%',
+    'Operações e ajustes administrativos ficam em `/money history`; criações e liquidações comerciais têm registro próprio.',
+  ].join('\n\n');
+  const rows = [navRow(), row(
+    button('config:economy:wallet', 'Editar saldo inicial e limites', ButtonStyle.Primary),
+    button('config:economy:market', 'Editar mercado e leilões', ButtonStyle.Primary),
+  ), row(button('config:economy:trade', 'Editar trocas e taxa da loteria', ButtonStyle.Secondary))];
   const payload = { components: [container(content, rows)], allowedMentions: { parse: [] } };
   return update ? updatePanel(interaction, payload) : interaction.editReply({ ...payload, flags: MessageFlags.IsComponentsV2 });
 }
@@ -279,16 +320,22 @@ async function showRewards(interaction, update = true) {
 async function showCasino(interaction, update = true) {
   const settings = await getSettings(interaction.guildId);
   const casino = settings.casino || {};
-  const games = ['flip', 'dice', 'slots'];
-  const names = { flip: 'Cara ou coroa', dice: 'Dados', slots: 'Caça-níquel' };
+  const names = { flip: 'Cara ou coroa', dice: 'Dados', slots: 'Caça-níquel', blackjack: 'Blackjack', roulette: 'Roleta', mines: 'Minas', highlow: 'Maior ou menor', wheel: 'Roda da fortuna', keno: 'Keno', treasure: 'Baús', racing: 'Corridas', lottery: 'Loteria', poker: 'Poker recreativo' };
+  const games = Object.keys(names);
+  const enabled = (game) => ['flip', 'dice', 'slots'].includes(game) ? casino[game]?.enabled !== false : casino.games?.[game]?.enabled !== false;
+  const select = new StringSelectMenuBuilder().setCustomId('config:casino:toggle-game').setPlaceholder('Selecionar um jogo para ativar ou pausar')
+    .addOptions(games.map((game) => ({ label: names[game], value: game, description: enabled(game) ? 'Ativo · selecionar para pausar' : 'Pausado · selecionar para ativar' })));
   const defaults = { flip: 2, dice: 2, slots: 5 };
-  const summary = games.map((game) => '• **' + names[game] + ':** ' + (casino[game]?.enabled === false ? 'desativado' : 'ativo') + ' · pagamento total ' + (casino[game]?.multiplier || defaults[game]) + '×').join('\n');
-  const rows = [navRow(), row(...games.map((game) => button(
-    'config:casino:toggle:' + game,
-    (casino[game]?.enabled === false ? 'Ativar ' : 'Desativar ') + names[game],
-    casino[game]?.enabled === false ? ButtonStyle.Success : ButtonStyle.Secondary,
-  ))), row(button('config:casino:edit', 'Editar apostas e pagamentos', ButtonStyle.Primary))];
-  const content = '# Cassino · regras de jogo\nApostas virtuais em Fragmentos. O multiplicador representa o total pago, incluindo a aposta quando há vitória.\n\n**Aposta máxima:** ' + (casino.maxBet || 1000000000).toLocaleString('pt-BR') + '\n' + summary;
+  const summary = games.map((game) => '• **' + names[game] + ':** ' + (enabled(game) ? 'ativo' : 'desativado')
+    + (Object.hasOwn(defaults, game) ? ' · pagamento total ' + (casino[game]?.multiplier || defaults[game]) + '×' : '')).join('\n');
+  const allowedChannels = casino.allowedChannelIds || [];
+  const channelSelect = new ChannelSelectMenuBuilder().setCustomId('config:casino:channels').setPlaceholder('Restringir a canais de texto')
+    .setChannelTypes([ChannelType.GuildText, ChannelType.GuildAnnouncement]).setMinValues(1).setMaxValues(5);
+  const rows = [navRow(), row(select), row(channelSelect), row(
+    button('config:casino:edit', 'Editar limites e sessões', ButtonStyle.Primary),
+    button('config:casino:payouts', 'Editar pagamentos clássicos', ButtonStyle.Secondary),
+  ), row(button('config:casino:channels:any', 'Permitir qualquer canal de texto', ButtonStyle.Secondary))];
+  const content = '# Cassino · jogos e limites\nApenas Fragmentos virtuais, sem depósitos, resgates ou conversão monetária. As regras usam probabilidades fixas e públicas; os resultados não dependem de saldo ou histórico individual.\n\n**Aposta máxima:** ' + (casino.maxBet || 1000000000).toLocaleString('pt-BR') + ' · **cooldown:** ' + Math.round((casino.cooldownMs || 0) / 60000) + ' min · **limite diário de perdas:** ' + (casino.dailyLossLimit ? casino.dailyLossLimit.toLocaleString('pt-BR') : 'sem limite adicional') + '\n**Sessão:** ' + (casino.sessionMinutes || 15) + ' min · **prazo por turno:** ' + (casino.turnTimeoutMinutes || 2) + ' min · **bilhete da loteria:** ' + (casino.lotteryTicketPrice || 100).toLocaleString('pt-BR') + ' Fragmentos · **máximo:** ' + (casino.maxLotteryTicketsPerMember || 100) + ' por pessoa\n**Canais:** ' + (allowedChannels.length ? allowedChannels.map((id) => '<#' + id + '>').join(', ') : 'qualquer canal de texto') + '\n\n' + summary;
   const payload = { components: [container(content, rows)], allowedMentions: { parse: [] } };
   return update ? updatePanel(interaction, payload) : interaction.editReply({ ...payload, flags: MessageFlags.IsComponentsV2 });
 }
@@ -552,12 +599,13 @@ async function handleConfigInteraction(interaction) {
   const customId = interaction.customId || '';
   if (!customId.startsWith('config:')) return false;
   const opensModal = interaction.isButton() && [
-    'config:xp:message', 'config:xp:voice', 'config:xp:levelup:message', 'config:rewards:conversion', 'config:casino:edit', 'config:trigger:create',
+    'config:xp:message', 'config:xp:voice', 'config:xp:levelup:message', 'config:rewards:conversion', 'config:casino:edit', 'config:casino:payouts',
+    'config:economy:wallet', 'config:economy:market', 'config:economy:trade', 'config:trigger:create',
     'config:storage:limit', 'config:utilities:limits', 'config:moderation:limits', 'config:giveaways:limits',
   ].includes(customId) || (interaction.isButton() && [
     'config:ai:prompt:edit', 'config:ai:generation:basic', 'config:ai:generation:member-limits', 'config:ai:generation:global-limits',
   ].includes(customId)) || (interaction.isButton() && (
-    customId === 'config:rewards:work' || customId.startsWith('config:rewards:daily:') || customId.startsWith('config:rules:edit:') ||
+    customId === 'config:rewards:work' || customId.startsWith('config:rewards:daily:') || customId === 'config:rewards:adventure' || customId === 'config:rewards:crime' || customId === 'config:rewards:passive:edit' || customId.startsWith('config:rules:edit:') ||
     customId.startsWith('config:trigger:text:') || customId.startsWith('config:trigger:response:add:') ||
     customId.startsWith('config:trigger:response:edit:') || customId.startsWith('config:store:create:') || customId.startsWith('config:store:art:') || customId.startsWith('config:badges:edit:')
     || customId.startsWith('config:storage:rename:')
@@ -610,6 +658,7 @@ async function handleConfigInteraction(interaction) {
         if (value === 'xp') await showXp(interaction);
         else if (value === 'permissions') await showPermissions(interaction);
         else if (value === 'rewards') await showRewards(interaction);
+        else if (value === 'economy') await showEconomy(interaction);
         else if (value === 'stores') await showStores(interaction);
         else if (value === 'rules') await showRules(interaction);
         else if (value === 'triggers') await showTriggers(interaction);
@@ -624,6 +673,17 @@ async function handleConfigInteraction(interaction) {
         else if (value === 'templates') await showTemplateSettings(interaction);
         else await showHome(interaction, true);
         return true;
+      }
+      if (customId === 'config:casino:toggle-game') {
+        const game = interaction.values[0];
+        const extended = ['blackjack', 'roulette', 'mines', 'highlow', 'wheel', 'keno', 'treasure', 'racing', 'lottery', 'poker'];
+        const settings = await getSettings(interaction.guildId);
+        if (['flip', 'dice', 'slots'].includes(game)) {
+          await configureCasino({ guildId: interaction.guildId, actorId: interaction.user.id, changes: { [game]: { enabled: settings.casino?.[game]?.enabled === false } } });
+        } else if (extended.includes(game)) {
+          await configureCasino({ guildId: interaction.guildId, actorId: interaction.user.id, changes: { games: { [game]: { enabled: settings.casino?.games?.[game]?.enabled === false } } } });
+        } else throw new RangeError('Jogo inválido.');
+        return showCasino(interaction);
       }
       if (customId === 'config:storage:category') return showStorage(interaction, true, { page: 0, category: STORAGE_CATEGORIES.includes(value) ? value : 'all' });
       if (customId.startsWith('config:storage:object:')) return showStorageObject(interaction, value, Number(customId.split(':')[3]) || 0, customId.split(':')[4] || 'all');
@@ -813,6 +873,12 @@ async function handleConfigInteraction(interaction) {
       return true;
     }
 
+    if (interaction.isChannelSelectMenu() && customId === 'config:casino:channels') {
+      await configureCasino({ guildId: interaction.guildId, actorId: interaction.user.id, changes: { allowedChannelIds: interaction.values } });
+      await showCasino(interaction);
+      return true;
+    }
+
     if (interaction.isChannelSelectMenu() && customId === 'config:xp:levelup:channel') {
       const channel = interaction.guild?.channels?.cache?.get(interaction.values[0]);
       if (!channel || ![ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type)) {
@@ -856,6 +922,54 @@ async function handleConfigInteraction(interaction) {
         ]));
         return true;
       }
+      if (customId === 'config:rewards:adventure') {
+        const settings = await getSettings(interaction.guildId);
+        const value = settings.adventure || {};
+        await interaction.showModal(modal('config:modal:income:adventure', 'Recompensa de expedição', [
+          shortInput('min', 'Fragmentos mínimos', { value: value.min ?? 80, maxLength: 14 }),
+          shortInput('max', 'Fragmentos máximos', { value: value.max ?? 800, maxLength: 14 }),
+          shortInput('cooldown', 'Cooldown em minutos', { value: Math.round((value.cooldownMs ?? 7200000) / 60000), maxLength: 8 }),
+        ]));
+        return true;
+      }
+      if (customId === 'config:rewards:crime') {
+        const settings = await getSettings(interaction.guildId);
+        const value = settings.crime || {};
+        await interaction.showModal(modal('config:modal:income:crime', 'Golpe de ficção', [
+          shortInput('min', 'Fragmentos ganhos · mínimo', { value: value.min ?? 100, maxLength: 14 }),
+          shortInput('max', 'Fragmentos ganhos · máximo', { value: value.max ?? 1200, maxLength: 14 }),
+          shortInput('fine', 'Multa · mínimo,máximo', { value: (value.fineMin ?? 50) + ',' + (value.fineMax ?? 400), maxLength: 30 }),
+          shortInput('chance', 'Chance de falha · 0 a 100%', { value: value.failChancePercent ?? 35, maxLength: 3 }),
+          shortInput('cooldown', 'Cooldown em minutos', { value: Math.round((value.cooldownMs ?? 10800000) / 60000), maxLength: 8 }),
+        ]));
+        return true;
+      }
+      if (customId === 'config:rewards:passive:toggle') {
+        const settings = await getSettings(interaction.guildId);
+        await configureIncome({ guildId: interaction.guildId, actorId: interaction.user.id, changes: { passiveIncome: { enabled: settings.passiveIncome?.enabled !== true } } });
+        return showRewards(interaction);
+      }
+      if (customId === 'config:rewards:toggle-work' || customId === 'config:rewards:toggle-daily') {
+        const settings = await getSettings(interaction.guildId);
+        if (customId.endsWith('work')) await configureWork({ guildId: interaction.guildId, actorId: interaction.user.id, enabled: settings.work?.enabled === false });
+        else await configureDaily({ guildId: interaction.guildId, actorId: interaction.user.id, enabled: settings.daily?.enabled === false });
+        return showRewards(interaction);
+      }
+      if (customId === 'config:rewards:adventure:toggle' || customId === 'config:rewards:crime:toggle') {
+        const source = customId.includes(':adventure:') ? 'adventure' : 'crime';
+        const settings = await getSettings(interaction.guildId);
+        await configureIncome({ guildId: interaction.guildId, actorId: interaction.user.id, changes: { [source]: { enabled: settings[source]?.enabled === false } } });
+        return showRewards(interaction);
+      }
+      if (customId === 'config:rewards:passive:edit') {
+        const settings = await getSettings(interaction.guildId);
+        const value = settings.passiveIncome || {};
+        await interaction.showModal(modal('config:modal:income:passive', 'Renda passiva', [
+          shortInput('amount', 'Fragmentos por coleta', { value: value.amount || 100, maxLength: 14 }),
+          shortInput('interval', 'Intervalo em horas', { value: Math.round((value.intervalMs || 86400000) / 3600000), maxLength: 8 }),
+        ]));
+        return true;
+      }
       if (customId === 'config:rewards:conversion') {
         const settings = await getSettings(interaction.guildId);
         await interaction.showModal(modal('config:modal:conversion', 'Conversão de Orbes', [
@@ -892,23 +1006,62 @@ async function handleConfigInteraction(interaction) {
 
     if (interaction.isButton() && customId.startsWith('config:casino:')) {
       const parts = customId.split(':');
-      if (parts[2] === 'toggle') {
-        const game = parts[3];
-        if (!['flip', 'dice', 'slots'].includes(game)) throw new RangeError('Jogo inválido.');
-        const settings = await getSettings(interaction.guildId);
-        await configureCasino({ guildId: interaction.guildId, actorId: interaction.user.id, changes: {
-          [game]: { enabled: settings.casino?.[game]?.enabled === false },
-        } });
-        return showCasino(interaction);
-      }
       if (parts[2] === 'edit') {
         const settings = await getSettings(interaction.guildId);
         const casino = settings.casino || {};
-        await interaction.showModal(modal('config:modal:casino', 'Apostas e pagamentos', [
+        await interaction.showModal(modal('config:modal:casino:limits', 'Limites e sessões do cassino', [
           shortInput('maxBet', 'Aposta máxima em Fragmentos', { value: casino.maxBet || 1000000000, maxLength: 14 }),
-          shortInput('flip', 'Pagamento total · Cara ou coroa (2 a 100)', { value: casino.flip?.multiplier || 2, maxLength: 3 }),
-          shortInput('dice', 'Pagamento total · Dados (2 a 100)', { value: casino.dice?.multiplier || 2, maxLength: 3 }),
-          shortInput('slots', 'Pagamento total · Caça-níquel (2 a 100)', { value: casino.slots?.multiplier || 5, maxLength: 3 }),
+          shortInput('cooldown', 'Cooldown por partida · minutos', { value: Math.round(casino.cooldownMs / 60000), maxLength: 8 }),
+          shortInput('lossLimit', 'Perda virtual máxima por dia · 0 desativa', { value: casino.dailyLossLimit || 0, maxLength: 14 }),
+          shortInput('session', 'Expiração de sessão · minutos', { value: casino.sessionMinutes || 15, maxLength: 3 }),
+          shortInput('turn', 'Prazo máximo por turno · minutos', { value: casino.turnTimeoutMinutes || 2, maxLength: 2 }),
+        ]));
+        return true;
+      }
+      if (parts[2] === 'payouts') {
+        const settings = await getSettings(interaction.guildId);
+        const casino = settings.casino || {};
+        await interaction.showModal(modal('config:modal:casino:payouts', 'Pagamentos dos jogos clássicos', [
+          shortInput('flip', 'Total pago · Cara ou coroa (2 a 100)', { value: casino.flip?.multiplier || 2, maxLength: 3 }),
+          shortInput('dice', 'Total pago · Dados (2 a 100)', { value: casino.dice?.multiplier || 2, maxLength: 3 }),
+          shortInput('slots', 'Total pago · Caça-níquel (2 a 100)', { value: casino.slots?.multiplier || 5, maxLength: 3 }),
+          shortInput('maxTickets', 'Bilhetes máximos por pessoa', { value: casino.maxLotteryTicketsPerMember || 100, maxLength: 4 }),
+          shortInput('ticketPrice', 'Preço do bilhete de loteria', { value: casino.lotteryTicketPrice || 100, maxLength: 14 }),
+        ]));
+        return true;
+      }
+      if (customId === 'config:casino:channels:any') {
+        await configureCasino({ guildId: interaction.guildId, actorId: interaction.user.id, changes: { allowedChannelIds: [] } });
+        return showCasino(interaction);
+      }
+    }
+
+    if (interaction.isButton() && customId.startsWith('config:economy:')) {
+      const settings = await getSettings(interaction.guildId);
+      const economy = settings.economy || {};
+      if (customId === 'config:economy:wallet') {
+        await interaction.showModal(modal('config:modal:economy:wallet', 'Saldos e limites', [
+          shortInput('initialWallet', 'Saldo inicial · carteira', { value: economy.initialWallet ?? 0, maxLength: 16 }),
+          shortInput('initialBank', 'Saldo inicial · banco', { value: economy.initialBank ?? 0, maxLength: 16 }),
+          shortInput('walletLimit', 'Limite da carteira', { value: economy.walletLimit || Number.MAX_SAFE_INTEGER, maxLength: 16 }),
+          shortInput('bankLimit', 'Limite do banco', { value: economy.bankLimit || Number.MAX_SAFE_INTEGER, maxLength: 16 }),
+        ]));
+        return true;
+      }
+      if (customId === 'config:economy:market') {
+        await interaction.showModal(modal('config:modal:economy:market', 'Mercado e leilões', [
+          shortInput('marketFee', 'Taxa de venda no mercado · 0 a 50%', { value: economy.marketFeePercent ?? 5, maxLength: 2 }),
+          shortInput('listingDays', 'Expiração de anúncio · dias', { value: economy.marketListingDays || 7, maxLength: 2 }),
+          shortInput('maxListings', 'Anúncios ativos máximos por pessoa', { value: economy.maxListingsPerMember || 10, maxLength: 3 }),
+          shortInput('auctionFee', 'Taxa de leilão · 0 a 50%', { value: economy.auctionFeePercent ?? 5, maxLength: 2 }),
+          shortInput('increment', 'Incremento mínimo de lance', { value: economy.auctionMinIncrement || 10, maxLength: 14 }),
+        ]));
+        return true;
+      }
+      if (customId === 'config:economy:trade') {
+        await interaction.showModal(modal('config:modal:economy:trade', 'Trocas e loteria', [
+          shortInput('tradeHours', 'Expiração de troca · horas', { value: economy.tradeExpiryHours || 24, maxLength: 3 }),
+          shortInput('lotteryFee', 'Taxa do prêmio da loteria · 0 a 50%', { value: economy.lotteryFeePercent ?? 0, maxLength: 2 }),
         ]));
         return true;
       }
@@ -1078,14 +1231,88 @@ async function handleConfigInteraction(interaction) {
         await showBadgeDetail(interaction, badgeId, false);
         return true;
       }
-      if (customId === 'config:modal:casino') {
+      if (customId === 'config:modal:casino:limits') {
         await configureCasino({ guildId: interaction.guildId, actorId: interaction.user.id, changes: {
           maxBet: parseNumber(interaction.fields.getTextInputValue('maxBet'), { min: 1, max: 1000000000, label: 'Aposta máxima' }),
+          cooldownMs: parseNumber(interaction.fields.getTextInputValue('cooldown'), { min: 0, max: 1440, label: 'Cooldown em minutos' }) * 60000,
+          dailyLossLimit: parseNumber(interaction.fields.getTextInputValue('lossLimit'), { min: 0, max: Number.MAX_SAFE_INTEGER, label: 'Limite diário de perdas' }),
+          sessionMinutes: parseNumber(interaction.fields.getTextInputValue('session'), { min: 1, max: 120, label: 'Duração da sessão' }),
+          turnTimeoutMinutes: parseNumber(interaction.fields.getTextInputValue('turn'), { min: 1, max: 60, label: 'Prazo por turno' }),
+        } });
+        await showCasino(interaction, false);
+        return true;
+      }
+      if (customId === 'config:modal:casino:payouts') {
+        await configureCasino({ guildId: interaction.guildId, actorId: interaction.user.id, changes: {
           flip: { multiplier: parseNumber(interaction.fields.getTextInputValue('flip'), { min: 2, max: 100, label: 'Pagamento total de cara ou coroa' }) },
           dice: { multiplier: parseNumber(interaction.fields.getTextInputValue('dice'), { min: 2, max: 100, label: 'Pagamento total dos dados' }) },
           slots: { multiplier: parseNumber(interaction.fields.getTextInputValue('slots'), { min: 2, max: 100, label: 'Pagamento total do caça-níquel' }) },
+          maxLotteryTicketsPerMember: parseNumber(interaction.fields.getTextInputValue('maxTickets'), { min: 1, max: 1000, label: 'Bilhetes máximos por pessoa' }),
+          lotteryTicketPrice: parseNumber(interaction.fields.getTextInputValue('ticketPrice'), { min: 1, max: Number.MAX_SAFE_INTEGER, label: 'Preço do bilhete' }),
         } });
         await showCasino(interaction, false);
+        return true;
+      }
+      if (customId === 'config:modal:economy:wallet') {
+        const changes = {
+          initialWallet: parseNumber(interaction.fields.getTextInputValue('initialWallet'), { min: 0, max: Number.MAX_SAFE_INTEGER, label: 'Saldo inicial da carteira' }),
+          initialBank: parseNumber(interaction.fields.getTextInputValue('initialBank'), { min: 0, max: Number.MAX_SAFE_INTEGER, label: 'Saldo inicial do banco' }),
+          walletLimit: parseNumber(interaction.fields.getTextInputValue('walletLimit'), { min: 1, max: Number.MAX_SAFE_INTEGER, label: 'Limite da carteira' }),
+          bankLimit: parseNumber(interaction.fields.getTextInputValue('bankLimit'), { min: 1, max: Number.MAX_SAFE_INTEGER, label: 'Limite do banco' }),
+        };
+        if (changes.initialWallet > changes.walletLimit || changes.initialBank > changes.bankLimit) throw new RangeError('O saldo inicial não pode superar o respectivo limite.');
+        await configureEconomy({ guildId: interaction.guildId, actorId: interaction.user.id, changes });
+        await showEconomy(interaction, false);
+        return true;
+      }
+      if (customId === 'config:modal:economy:market') {
+        await configureEconomy({ guildId: interaction.guildId, actorId: interaction.user.id, changes: {
+          marketFeePercent: parseNumber(interaction.fields.getTextInputValue('marketFee'), { min: 0, max: 50, label: 'Taxa do mercado' }),
+          marketListingDays: parseNumber(interaction.fields.getTextInputValue('listingDays'), { min: 1, max: 30, label: 'Duração do anúncio' }),
+          maxListingsPerMember: parseNumber(interaction.fields.getTextInputValue('maxListings'), { min: 1, max: 100, label: 'Limite de anúncios' }),
+          auctionFeePercent: parseNumber(interaction.fields.getTextInputValue('auctionFee'), { min: 0, max: 50, label: 'Taxa de leilão' }),
+          auctionMinIncrement: parseNumber(interaction.fields.getTextInputValue('increment'), { min: 1, max: Number.MAX_SAFE_INTEGER, label: 'Incremento mínimo de lance' }),
+        } });
+        await showEconomy(interaction, false);
+        return true;
+      }
+      if (customId === 'config:modal:economy:trade') {
+        await configureEconomy({ guildId: interaction.guildId, actorId: interaction.user.id, changes: {
+          tradeExpiryHours: parseNumber(interaction.fields.getTextInputValue('tradeHours'), { min: 1, max: 168, label: 'Expiração de troca' }),
+          lotteryFeePercent: parseNumber(interaction.fields.getTextInputValue('lotteryFee'), { min: 0, max: 50, label: 'Taxa da loteria' }),
+        } });
+        await showEconomy(interaction, false);
+        return true;
+      }
+      if (customId === 'config:modal:income:adventure') {
+        await configureIncome({ guildId: interaction.guildId, actorId: interaction.user.id, changes: { adventure: {
+          min: parseNumber(interaction.fields.getTextInputValue('min'), { min: 0, max: 1000000000000, label: 'Recompensa mínima' }),
+          max: parseNumber(interaction.fields.getTextInputValue('max'), { min: 0, max: 1000000000000, label: 'Recompensa máxima' }),
+          cooldownMinutes: parseNumber(interaction.fields.getTextInputValue('cooldown'), { min: 1, max: 525600, label: 'Cooldown' }),
+        } } });
+        await showRewards(interaction, false);
+        return true;
+      }
+      if (customId === 'config:modal:income:crime') {
+        const fineParts = interaction.fields.getTextInputValue('fine').split(',').map((part) => part.trim());
+        if (fineParts.length !== 2) throw new RangeError('Informe a multa como mínimo,máximo.');
+        await configureIncome({ guildId: interaction.guildId, actorId: interaction.user.id, changes: { crime: {
+          min: parseNumber(interaction.fields.getTextInputValue('min'), { min: 0, max: 1000000000000, label: 'Recompensa mínima' }),
+          max: parseNumber(interaction.fields.getTextInputValue('max'), { min: 0, max: 1000000000000, label: 'Recompensa máxima' }),
+          fineMin: parseNumber(fineParts[0], { min: 0, max: 1000000000000, label: 'Multa mínima' }),
+          fineMax: parseNumber(fineParts[1], { min: 0, max: 1000000000000, label: 'Multa máxima' }),
+          failChancePercent: parseNumber(interaction.fields.getTextInputValue('chance'), { min: 0, max: 100, label: 'Chance de falha' }),
+          cooldownMinutes: parseNumber(interaction.fields.getTextInputValue('cooldown'), { min: 1, max: 525600, label: 'Cooldown' }),
+        } } });
+        await showRewards(interaction, false);
+        return true;
+      }
+      if (customId === 'config:modal:income:passive') {
+        await configureIncome({ guildId: interaction.guildId, actorId: interaction.user.id, changes: { passiveIncome: {
+          amount: parseNumber(interaction.fields.getTextInputValue('amount'), { min: 0, max: 1000000000000, label: 'Renda passiva' }),
+          intervalHours: parseNumber(interaction.fields.getTextInputValue('interval'), { min: 1, max: 8760, label: 'Intervalo' }),
+        } } });
+        await showRewards(interaction, false);
         return true;
       }
       if (customId.startsWith('config:modal:rules:schedule:calendar:')) {
@@ -1598,4 +1825,4 @@ async function executeConfigCommand(interaction) {
   await showHome(interaction);
 }
 
-module.exports = { executeConfigCommand, handleConfigInteraction, showHome, showXp, showLevelUp, showBadges, showBadgeDetail, showPermissions, showRewards, showStores, showTriggers, showTriggerDetail, showStorage, showUtilitySettings, showModerationSettings, showGiveawaySettings, showTemplateSettings };
+module.exports = { executeConfigCommand, handleConfigInteraction, showHome, showXp, showLevelUp, showBadges, showBadgeDetail, showPermissions, showRewards, showEconomy, showCasino, showStores, showTriggers, showTriggerDetail, showStorage, showUtilitySettings, showModerationSettings, showGiveawaySettings, showTemplateSettings };

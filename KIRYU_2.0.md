@@ -1,3 +1,50 @@
+# Kiryu 2.0 — Fases 3 e 4
+
+Esta versão amplia as fases anteriores com uma economia comunitária e um cassino persistido. XP e níveis, saldos de Fragmentos e Orbes, banco, inventários, catálogo, perfis, badges, configurações e históricos existentes permanecem compatíveis e não são zerados.
+
+## Fase 3 — Economia comunitária
+
+- Carteira e banco: consulta, depósitos, saques, transferências, histórico, rankings por carteira/banco/patrimônio, ajustes individuais e em massa por cargo e auditoria administrativa.
+- Limites configuráveis para carteira e banco; saldos iniciais apenas para contas criadas após a configuração. O leitor de configurações não reescreve faixas de recompensa já gravadas.
+- Daily com renovação civil à meia-noite de `America/Sao_Paulo`, trabalho, expedição, crime fictício com chance/multa publicadas, renda passiva opcional, recompensas por cargo e ajustes administrativos.
+- Mercado com busca, categoria, ordenação, vendedor, quantidade, preço unitário, histórico, cancelamento e expiração opcional. O estoque é reservado enquanto o anúncio está aberto e é liberado ou entregue por marcadores idempotentes.
+- Trocas de Fragmentos, Orbes e itens com convite, alteração de oferta, confirmação bilateral, cancelamento, expiração e histórico. Cada edição altera a revisão e limpa as confirmações anteriores.
+- Leilões com lance inicial, incremento, compra imediata, reserva do lance, devolução a quem foi superado, encerramento automático e recuperação de liquidação.
+
+## Fase 4 — Kiryu Casino
+
+- Central `/casino` com saldo, jogos ativos, regras, limites, histórico, estatísticas e navegação interativa. Os jogos usam somente Fragmentos virtuais; não há depósitos, resgates, conversão monetária ou prêmios financeiros.
+- Jogos individuais: slots, blackjack, roleta europeia, cara ou coroa, dados, minas, maior/menor, roda, keno, baús e loteria comunitária. Blackjack e minas têm sessões persistidas e ações por botões.
+- Jogos comunitários: RPS, Quatro em linha, jogo da velha, corrida e poker recreativo. Salas públicas ou privadas guardam jogadores, turnos, estado, expiração, abandono e histórico; o estado pode ser reaberto após reconexão.
+- Probabilidades e retornos são fixos e apresentados antes da participação. Não são alterados pelo saldo, histórico ou perdas. A interface usa imagens PNG renderizadas pelo renderer do cassino, cartões, tabuleiros e botões.
+- `/config` administra faixas e cooldowns de renda, saldo inicial e limites, taxas de mercado e leilão, incremento mínimo, canais, ativação de jogos, aposta máxima, cooldown e limites de sessão/perda.
+
+## Integridade e persistência
+
+A conexão econômica foi projetada para MongoDB standalone, sem depender de transações de replica set. Cada alteração de conta é atômica no documento do membro. Operações com mais de uma conta usam diário persistido, IDs idempotentes, marcadores de conta, compensação e recuperação pelo agendador; falhas que não podem ser compensadas ficam em `manual_review` para auditoria em `/money audit`. Estoques e lances usam reservas atômicas. A capacidade do banco não é suficiente para alegar atomicidade distribuída: os pontos de compensação e revisão manual são parte do protocolo.
+
+## Comandos novos
+
+- `/income adventure|crime|passive`
+- `/market browse|seller|sell|cancel|history`
+- `/trade invite|accept|offer|confirm|view|cancel|history`
+- `/auction list|view|create|bid|buy-now|cancel|history`
+- `/casino` (central) ou `/casino game:<jogo>`; `bet`, `pick`, `number`, `numbers` e `tickets` são entradas opcionais conforme o jogo.
+- `/game create|list|join|start|move|choose|leave|view|history`
+- `/money leaderboard [category]`, `/money audit`, `/money add-role` e `/money remove-role`.
+
+As opções e nomes são em inglês; as respostas são em português. A árvore carregada tem 57 comandos. O README lista a árvore, configuração e exemplos completos.
+
+## Validação local
+
+Execute `npm test` para a suíte completa. `node --check` pode verificar a sintaxe dos módulos sem precisar de Discord ou MongoDB. PNGs gerados por `casinoArt` e serializações de interfaces comerciais ficam em `artifacts/visual-previews/phase-3-4/`. Testes locais não comprovam permissões reais do Discord, conectividade de produção, renderização em cada cliente móvel ou comportamento do cluster MongoDB de produção.
+
+## Registro anterior — Fase 2.3
+
+As seções seguintes preservam a documentação das fases anteriores e seu contexto de validação.
+
+---
+
 # Kiryu 2.0 — estado da Fase 2.3
 
 ## Resultado

@@ -13,6 +13,13 @@ const economyInventorySchema = new mongoose.Schema({
   sku: { type: String, required: true },
   slot: { type: String, default: 'stack' },
   quantity: { type: Number, default: 1, min: 1, max: Number.MAX_SAFE_INTEGER, validate: (value) => value == null || Number.isSafeInteger(value) },
+  marketReservationIds: { type: [String], default: [] },
+  marketReturnedIds: { type: [String], default: [] },
+  marketConsumedIds: { type: [String], default: [] },
+  deliveryIds: { type: [String], default: [] },
+  tradeReservationIds: { type: [String], default: [] },
+  tradeReturnedIds: { type: [String], default: [] },
+  tradeConsumedIds: { type: [String], default: [] },
   itemSnapshot: {
     name: { type: String, required: true },
     emoji: { type: String, default: '📦' },

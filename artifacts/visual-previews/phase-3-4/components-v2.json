@@ -1,0 +1,362 @@
+{
+  "generatedAt": "2026-11-26T00:00:00.000Z",
+  "note": "Builders reais do Discord Components V2. A renderização final do Discord depende do cliente; as PNGs das mesas são produzidas pelo casinoArt usado nas respostas do bot.",
+  "marketListing": {
+    "type": 17,
+    "accent_color": 1477224,
+    "components": [
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "-# BAZAR DO ETERNITY\n# 🔮 Orbe lunar\nUma peça rara para colecionadores."
+          }
+        ],
+        "accessory": {
+          "type": 11,
+          "media": {
+            "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/store.png"
+          },
+          "description": "Selo Kiryu · 🔮 Orbe lunar"
+        }
+      },
+      {
+        "type": 10,
+        "content": "**ID:** `m-preview`\n**Vendedor:** <@seller-preview>\n**Categoria:** collectible\n**Unidades:** 3\n**Preço unitário:** 125 <:fragmento:1568121720857170000>\n**Total:** 375 <:fragmento:1568121720857170000>\n**Expira:** <t:1795910400:R>\n\nA reserva será entregue ao comprador após a liquidação e a taxa publicada será descontada do pagamento ao vendedor."
+      },
+      {
+        "type": 12,
+        "items": [
+          {
+            "media": {
+              "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/store.png"
+            },
+            "description": "Orbe lunar"
+          }
+        ]
+      },
+      {
+        "type": 1,
+        "components": [
+          {
+            "type": 2,
+            "custom_id": "market:buy:preview-member:m-preview",
+            "label": "Comprar por 375 Fragmentos",
+            "style": 3
+          }
+        ]
+      },
+      {
+        "type": 14,
+        "spacing": 1
+      },
+      {
+        "type": 12,
+        "items": [
+          {
+            "media": {
+              "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/kiryu-divider.gif"
+            },
+            "description": "Divisória da Kiryu"
+          }
+        ]
+      },
+      {
+        "type": 10,
+        "content": "-# <t:1795683167:R> · **Developer by Krieg.js**"
+      }
+    ]
+  },
+  "tradeSession": {
+    "type": 17,
+    "accent_color": 1477224,
+    "components": [
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "-# BAZAR DO ETERNITY\n# Troca `t-preview` · ofertas abertas\n**Participantes:** <@member-a> ↔ <@member-b>"
+          }
+        ],
+        "accessory": {
+          "type": 11,
+          "media": {
+            "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/store.png"
+          },
+          "description": "Selo Kiryu · Troca `t-preview` · ofertas abertas"
+        }
+      },
+      {
+        "type": 10,
+        "content": "**Versão da oferta:** 3\n\n**<@member-a> oferece**\n250 <:fragmento:1568121720857170000> · 2 Orbes blue · 1 × `moon-blade`\n\n**<@member-b> oferece**\n80 <:fragmento:1568121720857170000>\n\n**Confirmações atuais:** <@member-a>\n\nToda alteração invalida as confirmações anteriores. Os recursos só são reservados na liquidação bilateral."
+      },
+      {
+        "type": 14,
+        "spacing": 1
+      },
+      {
+        "type": 12,
+        "items": [
+          {
+            "media": {
+              "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/kiryu-divider.gif"
+            },
+            "description": "Divisória da Kiryu"
+          }
+        ]
+      },
+      {
+        "type": 10,
+        "content": "-# <t:1795683167:R> · **Developer by Krieg.js**"
+      }
+    ]
+  },
+  "auction": {
+    "type": 17,
+    "accent_color": 1477224,
+    "components": [
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "-# BAZAR DO ETERNITY\n# Leilão · ⚔️ Lâmina antiga\nUma relíquia de aço."
+          }
+        ],
+        "accessory": {
+          "type": 11,
+          "media": {
+            "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/store.png"
+          },
+          "description": "Selo Kiryu · Leilão · ⚔️ Lâmina antiga"
+        }
+      },
+      {
+        "type": 10,
+        "content": "**ID:** `a-preview`\n**Vendedor:** <@seller-preview>\n**Unidades:** 2\n**Lance inicial:** 100 <:fragmento:1568121720857170000>\n**Próximo lance mínimo:** 180 <:fragmento:1568121720857170000>\n**Maior lance:** <@bidder-preview> · 160 <:fragmento:1568121720857170000>\n**Compra imediata:** 300 <:fragmento:1568121720857170000>\n**Encerra:** <t:1795658400:R>\n\n**Lances recentes:**\n• <@bidder-preview> · 160 <:fragmento:1568121720857170000>\n\nCada lance reserva Fragmentos da carteira. Ao superar um lance, a reserva anterior é devolvida. No encerramento, o vencedor recebe o item e o vendedor recebe o valor final menos a taxa configurada."
+      },
+      {
+        "type": 12,
+        "items": [
+          {
+            "media": {
+              "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/store.png"
+            },
+            "description": "Lâmina antiga"
+          }
+        ]
+      },
+      {
+        "type": 14,
+        "spacing": 1
+      },
+      {
+        "type": 12,
+        "items": [
+          {
+            "media": {
+              "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/kiryu-divider.gif"
+            },
+            "description": "Divisória da Kiryu"
+          }
+        ]
+      },
+      {
+        "type": 10,
+        "content": "-# <t:1795683167:R> · **Developer by Krieg.js**"
+      }
+    ]
+  },
+  "casinoBlackjack": {
+    "type": 17,
+    "accent_color": 8141549,
+    "components": [
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "-# SALÃO DA FORTUNA · JOGOS\n# Blackjack\nJogos com moeda virtual da comunidade · sem valor financeiro real"
+          }
+        ],
+        "accessory": {
+          "type": 11,
+          "media": {
+            "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/casino.png"
+          },
+          "description": "Selo Kiryu · Blackjack"
+        }
+      },
+      {
+        "type": 10,
+        "content": "# Blackjack · demonstração\nMesa virtual e controles próprios do jogo."
+      },
+      {
+        "type": 12,
+        "items": [
+          {
+            "media": {
+              "url": "attachment://kiryu-casino-blackjack.png"
+            },
+            "description": "Mesa Blackjack"
+          }
+        ]
+      },
+      {
+        "type": 14,
+        "spacing": 1
+      },
+      {
+        "type": 12,
+        "items": [
+          {
+            "media": {
+              "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/kiryu-divider.gif"
+            },
+            "description": "Divisória da Kiryu"
+          }
+        ]
+      },
+      {
+        "type": 10,
+        "content": "-# <t:1795683167:R> · **Developer by Krieg.js**"
+      }
+    ]
+  },
+  "communityGame": {
+    "type": 17,
+    "accent_color": 8141549,
+    "components": [
+      {
+        "type": 9,
+        "components": [
+          {
+            "type": 10,
+            "content": "-# ETERNITY REALMS · KIRYU\n# Jogo da velha · sala `gm-preview`\n**Estado:** active · **Jogadores:** 2/2"
+          }
+        ],
+        "accessory": {
+          "type": 11,
+          "media": {
+            "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/systems/crest.png"
+          },
+          "description": "Selo Kiryu · Jogo da velha · sala `gm-preview`"
+        }
+      },
+      {
+        "type": 10,
+        "content": "**Participantes:** <@member-a>, <@member-b>\n**Prazo:** <t:1795651800:R>\n**Prazo desta jogada:** <t:1795651260:R>\n**Vez:** <@member-b>\n\n❌ │ ⭕ │ 3\n──┼───┼──\n4 │ ❌ │ 6\n──┼───┼──\n⭕ │ 8 │ 9\n\nPartida recreativa, sem apostas ou prêmios financeiros."
+      },
+      {
+        "type": 1,
+        "components": [
+          {
+            "type": 2,
+            "custom_id": "game:move:gm-preview:0",
+            "label": "X",
+            "style": 1,
+            "disabled": true
+          },
+          {
+            "type": 2,
+            "custom_id": "game:move:gm-preview:1",
+            "label": "O",
+            "style": 4,
+            "disabled": true
+          },
+          {
+            "type": 2,
+            "custom_id": "game:move:gm-preview:2",
+            "label": "3",
+            "style": 2,
+            "disabled": false
+          }
+        ]
+      },
+      {
+        "type": 1,
+        "components": [
+          {
+            "type": 2,
+            "custom_id": "game:move:gm-preview:3",
+            "label": "4",
+            "style": 2,
+            "disabled": false
+          },
+          {
+            "type": 2,
+            "custom_id": "game:move:gm-preview:4",
+            "label": "X",
+            "style": 1,
+            "disabled": true
+          },
+          {
+            "type": 2,
+            "custom_id": "game:move:gm-preview:5",
+            "label": "6",
+            "style": 2,
+            "disabled": false
+          }
+        ]
+      },
+      {
+        "type": 1,
+        "components": [
+          {
+            "type": 2,
+            "custom_id": "game:move:gm-preview:6",
+            "label": "O",
+            "style": 4,
+            "disabled": true
+          },
+          {
+            "type": 2,
+            "custom_id": "game:move:gm-preview:7",
+            "label": "8",
+            "style": 2,
+            "disabled": false
+          },
+          {
+            "type": 2,
+            "custom_id": "game:move:gm-preview:8",
+            "label": "9",
+            "style": 2,
+            "disabled": false
+          }
+        ]
+      },
+      {
+        "type": 1,
+        "components": [
+          {
+            "type": 2,
+            "custom_id": "game:leave:gm-preview",
+            "label": "Sair / encerrar se criou a sala",
+            "style": 4
+          }
+        ]
+      },
+      {
+        "type": 14,
+        "spacing": 1
+      },
+      {
+        "type": 12,
+        "items": [
+          {
+            "media": {
+              "url": "https://raw.githubusercontent.com/SatoshoiDaemon/kiryu/main/assets/kiryu-divider.gif"
+            },
+            "description": "Divisória da Kiryu"
+          }
+        ]
+      },
+      {
+        "type": 10,
+        "content": "-# <t:1795683167:R> · **Developer by Krieg.js**"
+      }
+    ]
+  }
+}

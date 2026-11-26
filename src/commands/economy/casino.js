@@ -1,57 +1,56 @@
-const { SlashCommandBuilder } = require('discord.js');
-const { playCasino } = require('../../modules/economyService');
-const { replyV2, resourceSection } = require('../../modules/components');
-const { formatFragments } = require('../../modules/economyUtils');
-const { say } = require('../../modules/personality');
+const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { getAccount, getSettings, assertCasinoChannel } = require('../../modules/economyService');
+const { editCasino, gameMenu, lobbyText, GAME_NAMES, startSelectedGame } = require('../../modules/casinoInteractions');
+const { replyV2 } = require('../../modules/components');
 const config = require('../../config');
 
-const stake = (option) => option.setName('bet').setDescription('Fragmentos apostados').setMinValue(1).setMaxValue(1000000000).setRequired(true);
-const data = new SlashCommandBuilder().setName('casino').setDescription('Jogue por Fragmentos no salão da Kiryu.')
-  .addSubcommand((sub) => sub.setName('flip').setDescription('Escolha cara ou coroa')
-    .addStringOption((option) => option.setName('side').setDescription('Seu palpite').setRequired(true).addChoices({ name: 'Cara', value: 'heads' }, { name: 'Coroa', value: 'tails' }))
-    .addIntegerOption(stake))
-  .addSubcommand((sub) => sub.setName('dice').setDescription('Escolha alto ou baixo; quatro devolve a aposta')
-    .addStringOption((option) => option.setName('side').setDescription('Alto (5–6) ou baixo (1–3)').setRequired(true).addChoices({ name: 'Alto', value: 'high' }, { name: 'Baixo', value: 'low' }))
-    .addIntegerOption(stake))
-  .addSubcommand((sub) => sub.setName('slots').setDescription('Trio paga 5×; par devolve sua aposta')
-    .addIntegerOption(stake));
+const games = Object.entries(GAME_NAMES).map(([value, name]) => ({ name, value }));
+const data = new SlashCommandBuilder().setName('casino').setDescription('Abra o salão da Kiryu ou escolha um jogo individual.')
+  .addStringOption((option) => option.setName('game').setDescription('Jogo individual; sem escolha abre a central').setRequired(false).addChoices(...games))
+  .addIntegerOption((option) => option.setName('bet').setDescription('Aposta em Fragmentos').setMinValue(1).setMaxValue(1000000000).setRequired(false))
+  .addStringOption((option) => option.setName('pick').setDescription('Escolha: heads/tails, high/low, cor ou baú').setRequired(false).addChoices(
+    { name: 'Cara', value: 'heads' }, { name: 'Coroa', value: 'tails' }, { name: 'Alto', value: 'high' }, { name: 'Baixo', value: 'low' },
+    { name: 'Vermelho', value: 'red' }, { name: 'Preto', value: 'black' }, { name: 'Par', value: 'even' }, { name: 'Ímpar', value: 'odd' },
+    { name: 'Baú 1', value: '1' }, { name: 'Baú 2', value: '2' }, { name: 'Baú 3', value: '3' }, { name: 'Baú 4', value: '4' }, { name: 'Baú 5', value: '5' },
+  ))
+  .addIntegerOption((option) => option.setName('number').setDescription('Número da roleta, entre 0 e 36').setMinValue(0).setMaxValue(36).setRequired(false))
+  .addStringOption((option) => option.setName('numbers').setDescription('Keno: cinco números separados por vírgulas').setRequired(false).setMaxLength(32))
+  .addIntegerOption((option) => option.setName('tickets').setDescription('Loteria: bilhetes nesta compra · 1 a 10').setMinValue(1).setMaxValue(10).setRequired(false));
 
-function narrative(result, game) {
-  if (game === 'slots' && result.net > result.amount) return say('jackpot');
-  if (result.net > 0) return say('casinoWin');
-  if (result.net === 0) return say('casinoPush');
-  return say('casinoLoss');
+function homeRows(ownerId, settings) {
+  return [gameMenu(ownerId, settings), new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('casino:history:' + ownerId).setLabel('Meu histórico').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('casino:stats:' + ownerId).setLabel('Minhas estatísticas').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('casino:rooms:' + ownerId).setLabel('Salas multiplayer').setStyle(ButtonStyle.Primary),
+  )];
 }
 
 async function execute(interaction) {
   if (interaction.guildId !== config.guildId) return;
-  const selected = interaction.options.getSubcommand();
-  const game = selected === 'flip' ? 'coin' : selected;
-  const side = game === 'slots' ? null : interaction.options.getString('side');
-  const choice = game === 'coin' ? (side === 'heads' ? 'cara' : 'coroa') : game === 'dice' ? (side === 'high' ? 'alto' : 'baixo') : null;
-  const amount = interaction.options.getInteger('bet');
-  const result = await playCasino({ guildId: interaction.guildId, userId: interaction.user.id, game, choice, amount });
-  const payout = result.net > 0 ? '+' + formatFragments(result.net) : result.net < 0 ? '−' + formatFragments(-result.net) : formatFragments(0);
-  const heading = game === 'coin' ? 'A moeda caiu' : game === 'dice' ? 'Os dados pararam' : 'A máquina revelou';
-  const face = game === 'slots' ? '╭──────────────╮\n│　' + result.outcome.join('　') + '　│\n╰──────────────╯'
-    : game === 'coin' ? '╭──────────╮\n│　🪙　' + String(result.outcome).toUpperCase() + '　│\n╰──────────╯'
-      : '╭──────────╮\n│　🎲　' + result.outcome + '　│\n╰──────────╯';
-  const message = [
-    '# ' + heading,
-    '**' + narrative(result, game) + '**',
-    '',
-    face,
-    '',
-    result.message,
-  ].join('\n');
-  await replyV2(interaction, message, {
-    accentColor: config.visual.casino,
-    sections: [
-      resourceSection('Aposta', formatFragments(amount), '⬖', 'fragments'),
-      resourceSection('Variação da carteira', payout, result.net > 0 ? '✦' : '◈', 'casino'),
-      resourceSection('Fragmentos em mãos', formatFragments(result.account.wallet), '✧', 'fragments'),
-    ],
-  });
+  const game = interaction.options.getString('game');
+  const account = await getAccount(interaction.guildId, interaction.user.id);
+  const settings = await getSettings(interaction.guildId);
+  assertCasinoChannel(settings, interaction.channelId);
+  if (!game) {
+    return editCasino(interaction, lobbyText(account, settings), {
+      game: 'lobby', rows: homeRows(interaction.user.id, settings),
+    });
+  }
+  if (game === 'lottery') {
+    return startSelectedGame(interaction, game, null, null, null, interaction.options.getInteger('tickets') || 1);
+  }
+  if (game === 'racing' || game === 'poker') return startSelectedGame(interaction, game, null, null, null);
+  const bet = interaction.options.getInteger('bet');
+  if (!bet) throw new RangeError('Informe a aposta em `bet` antes de iniciar.');
+  const pick = interaction.options.getString('pick');
+  const number = interaction.options.getInteger('number');
+  const numbers = interaction.options.getString('numbers');
+  const choice = game === 'coinflip' || game === 'dice' || game === 'highlow' ? pick
+    : game === 'roulette' ? (number != null ? String(number) : pick)
+      : game === 'treasure' ? pick : null;
+  if (['coinflip', 'dice', 'highlow', 'roulette', 'treasure'].includes(game) && choice == null) throw new RangeError('Escolha seu palpite antes de iniciar o jogo.');
+  if (game === 'keno' && !numbers) throw new RangeError('Informe cinco números para jogar Keno.');
+  return startSelectedGame(interaction, game, bet, choice, numbers);
 }
 
-module.exports = { data, execute, narrative };
+module.exports = { data, execute, homeRows };

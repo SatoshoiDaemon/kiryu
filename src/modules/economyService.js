@@ -2,7 +2,7 @@ const crypto = require('node:crypto');
 const mongoose = require('mongoose');
 const {
   EconomyAccount, EconomyItem, EconomyInventory, EconomyTransaction, EconomySettings,
-  EconomyCollectRule, EconomyClaim,
+  EconomyCollectRule, EconomyClaim, EconomyOperation, MarketListing, TradeSession, Auction, GameSession,
 } = require('../database');
 const {
   ORB_TYPES, EconomyError, assertAmount, orbConversion, remainingMs, formatDuration, periodKey, isCalendarDue, dailyCycle,
@@ -10,6 +10,7 @@ const {
 
 const logger = require('../logger');
 const { errorDetails } = require('./errorDetails');
+const { resolveInstantGame } = require('./casinoGames');
 
 const MAX_BALANCE = Number.MAX_SAFE_INTEGER;
 
@@ -18,10 +19,15 @@ async function runStandaloneOperation(task) {
 }
 
 async function ensureAccount(guildId, userId) {
+  const settings = await getSettings(guildId);
+  const walletLimit = Math.max(0, Math.min(MAX_BALANCE, Number(settings?.economy?.walletLimit) || MAX_BALANCE));
+  const bankLimit = Math.max(0, Math.min(MAX_BALANCE, Number(settings?.economy?.bankLimit) || MAX_BALANCE));
+  const initialWallet = Math.max(0, Math.min(walletLimit, Number(settings?.economy?.initialWallet) || 0));
+  const initialBank = Math.max(0, Math.min(bankLimit, Number(settings?.economy?.initialBank) || 0));
   try {
     return await EconomyAccount.findOneAndUpdate(
       { guildId, userId },
-      { $setOnInsert: { guildId, userId, wallet: 0, bank: 0, orbs: { green: 0, blue: 0, orange: 0, red: 0, black: 0, gold: 0 } } },
+      { $setOnInsert: { guildId, userId, wallet: initialWallet, bank: initialBank, orbs: { green: 0, blue: 0, orange: 0, red: 0, black: 0, gold: 0 } } },
       { upsert: true, returnDocument: 'after', setDefaultsOnInsert: false },
     );
   } catch (error) {
@@ -45,25 +51,10 @@ async function getSettings(guildId) {
       settings = await EconomySettings.findById(guildId);
     }
   }
-  if (!settings?.daily || settings.daily.rangesConfigured) return settings;
-
-  // Initialize old settings once with the daily ranges requested for the game.
-  // The conditional update lets a concurrent admin configuration win.
-  const migrated = await EconomySettings.findOneAndUpdate(
-    { _id: guildId, 'daily.rangesConfigured': { $ne: true } },
-    { $set: {
-      'daily.rewardRanges.fragments': { min: 400, max: 1000 },
-      'daily.rewardRanges.orbs.green': { min: 10, max: 100 },
-      'daily.rewardRanges.orbs.blue': { min: 10, max: 50 },
-      'daily.rewardRanges.orbs.orange': { min: 5, max: 10 },
-      'daily.rewardRanges.orbs.red': { min: 0, max: 0 },
-      'daily.rewardRanges.orbs.black': { min: 0, max: 0 },
-      'daily.rewardRanges.orbs.gold': { min: 0, max: 0 },
-      'daily.rangesConfigured': true,
-    } },
-    { returnDocument: 'after' },
-  );
-  return migrated || EconomySettings.findById(guildId);
+  // New fields use additive schema defaults. Never rewrite configured reward
+  // ranges here: older settings may contain operator-managed values without
+  // the newer migration marker.
+  return settings;
 }
 
 function auditRecord(data) {
@@ -83,21 +74,198 @@ async function auditAfterAccountUpdate(data) {
   }
 }
 
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (!value || typeof value !== 'object' || value instanceof Date || value instanceof mongoose.Types.ObjectId) return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
+}
+
+async function getOrCreateEconomicOperation({ operationId, guildId, kind, request, execution }) {
+  if (!EconomyOperation) return { operation: null, execution, resumed: false };
+  const id = String(operationId || crypto.randomUUID()).slice(0, 160);
+  let operation = await EconomyOperation.findById(id);
+  if (operation) {
+    const value = operation.toObject ? operation.toObject() : operation;
+    if (value.kind !== kind || JSON.stringify(canonical(value.payload?.request)) !== JSON.stringify(canonical(request))) {
+      throw new EconomyError('Esta interação já foi associada a outra operação econômica.');
+    }
+    return { operation: value, execution: value.payload, resumed: true };
+  }
+  try {
+    operation = await EconomyOperation.create({ _id: id, guildId, kind, state: 'pending', step: 'created', payload: { request, ...execution } });
+    return { operation: operation.toObject ? operation.toObject() : operation, execution: operation.payload || { request, ...execution }, resumed: false };
+  } catch (error) {
+    if (error?.code !== 11000) throw error;
+    operation = await EconomyOperation.findById(id);
+    const value = operation?.toObject ? operation.toObject() : operation;
+    if (!value || value.kind !== kind || JSON.stringify(canonical(value.payload?.request)) !== JSON.stringify(canonical(request))) throw error;
+    return { operation: value, execution: value.payload, resumed: true };
+  }
+}
+
+async function applyAccountMutation({ guildId, userId, operationKey, inc = {}, set = {}, guards = {}, pipeline = null }) {
+  await ensureAccount(guildId, userId);
+  const query = { guildId, userId, recentOperationKeys: { $ne: operationKey }, ...guards };
+  const update = pipeline ? [...pipeline, { $set: { recentOperationKeys: { $setUnion: [{ $ifNull: ['$recentOperationKeys', []] }, [operationKey]] } } }]
+    : { $inc: inc, $addToSet: { recentOperationKeys: operationKey } };
+  if (!pipeline && Object.keys(set).length) update.$set = set;
+  const account = await EconomyAccount.findOneAndUpdate(query, update, { returnDocument: 'after' });
+  if (account) return { account: account.toObject ? account.toObject() : account, duplicate: false };
+  const previous = await EconomyAccount.findOne({ guildId, userId, recentOperationKeys: operationKey });
+  if (previous) return { account: previous.toObject ? previous.toObject() : previous, duplicate: true };
+  return null;
+}
+
+async function clearEconomicOperationMarkers(operation, execution) {
+  const keys = (execution?.legs || []).map((_, index) => operation._id + ':leg:' + index)
+    .concat(operation._id + ':compensation');
+  if (keys.length && EconomyAccount?.updateMany) {
+    await EconomyAccount.updateMany({ recentOperationKeys: { $in: keys } }, { $pull: { recentOperationKeys: { $in: keys } } }).catch(() => {});
+  }
+}
+
+async function resumeEconomicOperation(operation, execution = operation?.payload) {
+  if (!operation) throw new EconomyError('A operação econômica não foi localizada para recuperação.');
+  if (operation.state === 'completed') {
+    await clearEconomicOperationMarkers(operation, execution);
+    return { duplicate: true, result: operation.result || execution?.result };
+  }
+  if (operation.state === 'cancelled') {
+    await clearEconomicOperationMarkers(operation, execution);
+    throw new EconomyError(execution?.failure || 'A operação econômica não foi concluída.');
+  }
+  if (operation.state !== 'pending') throw new EconomyError('A operação econômica aguarda revisão da equipe.');
+  const applied = [];
+  for (let index = 0; index < (execution?.legs || []).length; index += 1) {
+    const leg = execution.legs[index];
+    const result = await applyAccountMutation({
+      guildId: operation.guildId,
+      userId: leg.userId,
+      operationKey: operation._id + ':leg:' + index,
+      inc: leg.inc,
+      set: leg.set || {},
+      guards: leg.guards || {},
+      pipeline: leg.pipeline || null,
+    });
+    if (!result) {
+      if (index === 0) {
+        const message = leg.failure || 'Saldo insuficiente para concluir essa operação.';
+        await EconomyOperation.updateOne({ _id: operation._id, state: 'pending' }, { $set: { state: 'cancelled', step: 'cancelled', 'payload.failure': message } });
+        throw new EconomyError(message);
+      }
+      const compensation = execution.compensation;
+      if (compensation) {
+        const rollback = await applyAccountMutation({
+          guildId: operation.guildId,
+          userId: compensation.userId,
+          operationKey: operation._id + ':compensation',
+          inc: compensation.inc,
+          guards: compensation.guards || {},
+        });
+        if (!rollback) {
+          await EconomyOperation.updateOne({ _id: operation._id, state: 'pending' }, { $set: { state: 'manual_review', step: 'compensation_failed' } });
+          throw new EconomyError('A operação precisa de revisão da equipe; nenhum outro saldo deve ser movimentado.');
+        }
+      }
+      const message = leg.failure || 'A operação não pôde ser liquidada; o valor foi devolvido.';
+      await EconomyOperation.updateOne({ _id: operation._id, state: 'pending' }, { $set: { state: 'cancelled', step: 'compensated', 'payload.failure': message } });
+      await clearEconomicOperationMarkers(operation, execution);
+      throw new EconomyError(message);
+    }
+    applied.push(result.account);
+    await EconomyOperation.updateOne({ _id: operation._id, state: 'pending' }, { $set: { step: 'leg_' + (index + 1) } });
+  }
+  for (let index = 0; index < (execution?.transactions || []).length; index += 1) {
+    const transaction = execution.transactions[index];
+    const key = operation._id + ':transaction:' + index;
+    await EconomyTransaction.updateOne({ idempotencyKey: key }, { $setOnInsert: { ...transaction, idempotencyKey: key } }, { upsert: true });
+  }
+  await EconomyOperation.updateOne({ _id: operation._id, state: 'pending' }, { $set: { state: 'completed', step: 'completed', result: execution.result || null } });
+  await clearEconomicOperationMarkers(operation, execution);
+  return { duplicate: false, result: execution.result, accounts: applied };
+}
+
+function economyLimits(settings) {
+  return {
+    wallet: Math.max(0, Math.min(MAX_BALANCE, Number(settings?.economy?.walletLimit) || MAX_BALANCE)),
+    bank: Math.max(0, Math.min(MAX_BALANCE, Number(settings?.economy?.bankLimit) || MAX_BALANCE)),
+  };
+}
+
+function walletCapacityGuard(limit, credit = 0) {
+  return { $expr: { $lte: [
+    { $add: [{ $ifNull: ['$wallet', 0] }, { $ifNull: ['$casinoReservedPayout', 0] }, Number(credit || 0)] },
+    Number(limit),
+  ] } };
+}
+
+function assertCasinoChannel(settings, channelId) {
+  const allowed = settings?.casino?.allowedChannelIds || [];
+  if (allowed.length && !allowed.includes(String(channelId || ''))) throw new EconomyError('O cassino só está disponível nos canais configurados pela equipe.');
+}
+
+async function runEconomicOperation(input) {
+  const prepared = await getOrCreateEconomicOperation(input);
+  if (!prepared.operation) return { ...(await input.fallback()) };
+  return resumeEconomicOperation(prepared.operation, prepared.execution);
+}
+
+async function replayPendingEconomicOperations({ limit = 100 } = {}) {
+  if (!EconomyOperation) return { recovered: 0, pending: 0 };
+  const operations = await EconomyOperation.find({ state: 'pending' }).sort({ updatedAt: 1 }).limit(limit).lean();
+  let recovered = 0;
+  for (const operation of operations) {
+    try {
+      await resumeEconomicOperation(operation, operation.payload);
+      recovered += 1;
+    } catch (error) {
+      if (!(error instanceof EconomyError)) logger.warn('Operação econômica pendente (' + operation.kind + ') aguarda recuperação (' + errorDetails(error) + ').');
+    }
+  }
+  return { recovered, pending: operations.length - recovered };
+}
+
 function amountInc(path, amount) {
   return { $inc: { [path]: amount } };
 }
 
-async function adjustFragments({ guildId, actorId, userId, amount, operation = 'admin_fragments_add', mode = 'add', accountType = 'wallet' }) {
+async function adjustFragments({ guildId, actorId, userId, amount, operation = 'admin_fragments_add', mode = 'add', accountType = 'wallet', interactionId = null }) {
   assertAmount(amount, 'Quantidade', { min: mode === 'set' ? 0 : 1 });
   if (!['add', 'remove', 'set'].includes(mode)) throw new RangeError('Operação monetária inválida.');
   if (!['wallet', 'bank'].includes(accountType)) throw new RangeError('Conta de Fragmentos inválida.');
   await ensureAccount(guildId, userId);
+  const limits = economyLimits(await getSettings(guildId));
   const previous = mode === 'set' ? await EconomyAccount.findOne({ guildId, userId }).lean() : null;
   const balancePath = accountType;
+  if (interactionId && EconomyOperation?.findById && EconomyOperation?.create) {
+    const delta = mode === 'set' ? amount - Number(previous?.[balancePath] || 0) : mode === 'add' ? amount : -amount;
+    const guards = mode === 'add' ? { [balancePath]: { $lte: limits[accountType] - amount }, ...(accountType === 'wallet' ? walletCapacityGuard(limits.wallet, amount) : {}) }
+      : mode === 'remove' ? { [balancePath]: { $gte: amount } }
+        : { [balancePath]: { $eq: Number(previous?.[balancePath] || 0) }, ...(accountType === 'wallet' ? { $expr: { $lte: [{ $ifNull: ['$casinoReservedPayout', 0] }, limits.wallet - amount] } } : {}) };
+    const result = await runEconomicOperation({
+      operationId: 'admin:' + interactionId + ':' + userId,
+      guildId,
+      kind: 'admin_balance_adjustment',
+      request: { actorId, userId, amount, mode, accountType, operation },
+      execution: {
+        legs: [{ userId, inc: mode === 'set' ? {} : { [balancePath]: delta }, set: mode === 'set' ? { [balancePath]: amount } : {}, guards,
+          failure: mode === 'remove' ? 'O usuário não possui Fragmentos suficientes nessa conta.' : mode === 'set' ? 'O saldo mudou durante o ajuste; atualize e tente novamente.' : 'O saldo máximo permitido seria ultrapassado.' }],
+        transactions: [{ guildId, actorId, userId, operation, currency: 'fragments', amount, walletDelta: accountType === 'wallet' ? delta : 0, bankDelta: accountType === 'bank' ? delta : 0,
+          details: { mode, accountType, previous: Number(previous?.[balancePath] || 0), result: mode === 'set' ? amount : Number(previous?.[balancePath] || 0) + delta } }],
+        result: { userId, mode, accountType, amount },
+      },
+    });
+    return result.accounts?.[0] || getAccount(guildId, userId);
+  }
   const query = { guildId, userId };
   const update = mode === 'set' ? { $set: { [balancePath]: amount } } : amountInc(balancePath, mode === 'add' ? amount : -amount);
-  if (mode === 'add') query[balancePath] = { $lte: MAX_BALANCE - amount };
+  if (mode === 'set' && amount > limits[accountType]) throw new EconomyError('O saldo definido supera o limite configurado para essa conta.');
+  if (mode === 'add') {
+    query[balancePath] = { $lte: limits[accountType] - amount };
+    if (accountType === 'wallet') Object.assign(query, walletCapacityGuard(limits.wallet, amount));
+  }
   if (mode === 'remove') query[balancePath] = { $gte: amount };
+  if (mode === 'set' && accountType === 'wallet') query.$expr = { $lte: [{ $ifNull: ['$casinoReservedPayout', 0] }, limits.wallet - amount] };
   const account = await EconomyAccount.findOneAndUpdate(query, update, { returnDocument: 'after' });
   if (!account) throw new EconomyError(mode === 'remove' ? 'O usuário não possui Fragmentos suficientes nessa conta.' : 'O saldo máximo permitido seria ultrapassado.');
   const delta = mode === 'set' ? amount - (previous?.[balancePath] || 0) : (mode === 'add' ? amount : -amount);
@@ -123,18 +291,41 @@ async function adjustOrbs({ guildId, actorId, userId, type, amount, operation = 
   return account.toObject ? account.toObject() : account;
 }
 
-async function bankTransfer({ guildId, userId, amount, direction }) {
+async function bankTransfer({ guildId, userId, amount, direction, interactionId = null }) {
   assertAmount(amount, 'Quantidade');
   if (!['deposit', 'withdraw'].includes(direction)) throw new RangeError('Operação bancária inválida.');
+  if (EconomyOperation?.findById && EconomyOperation?.create) {
+    const settings = await getSettings(guildId);
+    const limits = economyLimits(settings);
+    const deposit = direction === 'deposit';
+    const movement = deposit ? 'bank_deposit' : 'bank_withdraw';
+    const operation = await runEconomicOperation({
+      operationId: 'bank:' + (interactionId || crypto.randomUUID()), guildId, kind: movement,
+      request: { userId, amount, direction },
+      execution: {
+        legs: [{ userId, inc: { wallet: deposit ? -amount : amount, bank: deposit ? amount : -amount }, guards: deposit
+          ? { wallet: { $gte: amount }, bank: { $lte: limits.bank - amount } }
+          : { bank: { $gte: amount }, wallet: { $lte: limits.wallet - amount }, ...walletCapacityGuard(limits.wallet, amount) }, failure: deposit ? 'Saldo insuficiente na carteira ou limite do banco atingido.' : 'Saldo insuficiente no banco ou limite da carteira atingido.' }],
+        transactions: [{ guildId, actorId: userId, userId, operation: movement, currency: 'fragments', amount,
+          walletDelta: deposit ? -amount : amount, bankDelta: deposit ? amount : -amount }],
+        result: { userId, amount, direction },
+      },
+    });
+    if (operation.accounts?.[0]) return operation.accounts[0];
+    return getAccount(guildId, userId);
+  }
   await ensureAccount(guildId, userId);
+  const settings = await getSettings(guildId);
+  const limits = economyLimits(settings);
   const deposit = direction === 'deposit';
   const query = { guildId, userId };
   if (deposit) {
     query.wallet = { $gte: amount };
-    query.bank = { $lte: MAX_BALANCE - amount };
+    query.bank = { $lte: limits.bank - amount };
   } else {
     query.bank = { $gte: amount };
-    query.wallet = { $lte: MAX_BALANCE - amount };
+    query.wallet = { $lte: limits.wallet - amount };
+    Object.assign(query, walletCapacityGuard(limits.wallet, amount));
   }
   const account = await EconomyAccount.findOneAndUpdate(query, {
     $inc: { wallet: deposit ? -amount : amount, bank: deposit ? amount : -amount },
@@ -144,9 +335,34 @@ async function bankTransfer({ guildId, userId, amount, direction }) {
   return account.toObject ? account.toObject() : account;
 }
 
-async function transferFragments({ guildId, senderId, recipientId, amount }) {
+async function transferFragments({ guildId, senderId, recipientId, amount, interactionId = null }) {
   assertAmount(amount, 'Quantidade');
   if (!recipientId || senderId === recipientId) throw new EconomyError('Escolha outra pessoa para receber os Fragmentos.');
+  if (EconomyOperation?.findById && EconomyOperation?.create) {
+    const settings = await getSettings(guildId);
+    const limits = economyLimits(settings);
+    const result = await runEconomicOperation({
+      operationId: 'transfer:' + (interactionId || crypto.randomUUID()), guildId, kind: 'member_transfer',
+      request: { senderId, recipientId, amount },
+      execution: {
+        legs: [
+          { userId: senderId, inc: { wallet: -amount }, guards: { wallet: { $gte: amount } }, failure: 'Sua carteira não tem Fragmentos suficientes para esse envio.' },
+          { userId: recipientId, inc: { wallet: amount }, guards: { wallet: { $lte: limits.wallet - amount }, ...walletCapacityGuard(limits.wallet, amount) }, failure: 'A outra carteira atingiu o limite. Nenhum Fragmento foi enviado.' },
+        ],
+        compensation: { userId: senderId, inc: { wallet: amount }, guards: { wallet: { $lte: MAX_BALANCE - amount } } },
+        transactions: [
+          { guildId, actorId: senderId, userId: senderId, operation: 'member_transfer_out', currency: 'fragments', amount, walletDelta: -amount, details: { recipientId } },
+          { guildId, actorId: senderId, userId: recipientId, operation: 'member_transfer_in', currency: 'fragments', amount, walletDelta: amount, details: { senderId } },
+        ],
+        result: { senderId, recipientId, amount },
+      },
+    });
+    const accounts = result.accounts || [];
+    if (accounts.length >= 2) return { sender: accounts[0], recipient: accounts[1], duplicate: Boolean(result.duplicate) };
+    const [sender, recipient] = await Promise.all([getAccount(guildId, senderId), getAccount(guildId, recipientId)]);
+    return { sender, recipient, duplicate: true };
+  }
+  const limits = economyLimits(await getSettings(guildId));
   await Promise.all([ensureAccount(guildId, senderId), ensureAccount(guildId, recipientId)]);
   const sender = await EconomyAccount.findOneAndUpdate(
     { guildId, userId: senderId, wallet: { $gte: amount } },
@@ -155,7 +371,7 @@ async function transferFragments({ guildId, senderId, recipientId, amount }) {
   );
   if (!sender) throw new EconomyError('Sua carteira não tem Fragmentos suficientes para esse envio.');
   const recipient = await EconomyAccount.findOneAndUpdate(
-    { guildId, userId: recipientId, wallet: { $lte: MAX_BALANCE - amount } },
+    { guildId, userId: recipientId, wallet: { $lte: limits.wallet - amount }, ...walletCapacityGuard(limits.wallet, amount) },
     { $inc: { wallet: amount } },
     { returnDocument: 'after' },
   );
@@ -173,43 +389,82 @@ async function transferFragments({ guildId, senderId, recipientId, amount }) {
   return { sender: sender.toObject ? sender.toObject() : sender, recipient: recipient.toObject ? recipient.toObject() : recipient };
 }
 
-async function playCasino({ guildId, userId, game, amount, choice, random = crypto.randomInt }) {
+async function playCasino({ guildId, userId, game, amount, choice, numbers, random = crypto.randomInt, interactionId = null, channelId = null }) {
   const settings = await getSettings(guildId);
   const casino = settings?.casino || {};
-  const casinoGame = game === 'coin' ? 'flip' : game;
-  const gameSettings = casino[casinoGame] || { enabled: true, multiplier: game === 'slots' ? 5 : 2 };
+  assertCasinoChannel(settings, channelId);
+  const limits = economyLimits(settings);
+  const casinoGame = game === 'coin' || game === 'coinflip' ? 'flip' : game;
+  const gameSettings = casino[casinoGame] || casino.games?.[game] || { enabled: true, multiplier: game === 'slots' ? 5 : 2 };
   if (gameSettings.enabled === false) throw new EconomyError('Esse jogo está temporariamente indisponível.');
   assertAmount(amount, 'Aposta', { max: casino.maxBet || 1000000000 });
-  const result = {};
-  if (game === 'coin') {
-    if (!['cara', 'coroa'].includes(choice)) throw new RangeError('Escolha cara ou coroa.');
-    result.outcome = random(0, 2) === 0 ? 'cara' : 'coroa';
-    result.multiplier = gameSettings.multiplier || 2;
-    result.net = result.outcome === choice ? amount * (result.multiplier - 1) : -amount;
-    result.message = result.net > 0 ? 'A moeda caiu do seu lado. A Kiryu paga ' + result.multiplier + '× no total.' : 'A moeda escolheu o outro lado. A casa fica com a aposta.';
-  } else if (game === 'dice') {
-    if (!['baixo', 'alto'].includes(choice)) throw new RangeError('Escolha alto ou baixo.');
-    result.outcome = random(1, 7);
-    result.multiplier = gameSettings.multiplier || 2;
-    result.net = result.outcome === 4 ? 0 : ((result.outcome > 4) === (choice === 'alto') ? amount * (result.multiplier - 1) : -amount);
-    result.message = result.net > 0 ? 'Os dados vieram do seu lado. A Kiryu paga ' + result.multiplier + '× no total.' : (result.net === 0 ? 'Quatro. A Kiryu devolve sua aposta.' : 'Os dados foram contra você. A mesa recolhe a aposta.');
-  } else if (game === 'slots') {
-    const symbols = ['🌸', '⚔️', '🔮', '👑', '🐉'];
-    result.outcome = [symbols[random(0, symbols.length)], symbols[random(0, symbols.length)], symbols[random(0, symbols.length)]];
-    result.multiplier = gameSettings.multiplier || 5;
-    const matches = result.outcome[0] === result.outcome[1] && result.outcome[1] === result.outcome[2];
-    const pair = !matches && (result.outcome[0] === result.outcome[1] || result.outcome[1] === result.outcome[2] || result.outcome[0] === result.outcome[2]);
-    result.net = matches ? amount * (result.multiplier - 1) : (pair ? 0 : -amount);
-    result.message = matches ? 'Três iguais! A Kiryu solta **' + result.multiplier + '× o valor apostado** no total.' : (pair ? 'Quase. Par deu empate: aposta devolvida.' : 'As figuras não combinaram. A máquina engoliu a aposta.');
-  } else {
-    throw new RangeError('Jogo do cassino inválido.');
+  const multiplier = gameSettings.multiplier || (game === 'slots' ? 5 : 2);
+  const gameResult = resolveInstantGame({ game, bet: amount, choice, numbers, multiplier, randomInt: random });
+  const now = Date.now();
+  const outcome = game === 'coin' || game === 'coinflip' ? (gameResult.outcome === 'heads' ? 'cara' : 'coroa') : gameResult.outcome;
+  const result = {
+    outcome,
+    multiplier: gameResult.details?.totalMultiplier || multiplier,
+    payout: gameResult.payout,
+    net: gameResult.net,
+    details: gameResult.details,
+    message: gameResult.net > 0 ? 'O resultado ficou do seu lado. A Kiryu paga conforme as regras publicadas.'
+      : gameResult.net === 0 ? 'Empate. Sua aposta voltou inteira para a carteira.'
+        : 'Desta vez a mesa ficou com a aposta. As chances permanecem iguais em todas as partidas.',
+  };
+  const ledgerGame = game === 'coinflip' ? 'coin' : game;
+  const transaction = { guildId, actorId: userId, userId, operation: 'casino_' + ledgerGame, currency: 'fragments', amount, walletDelta: result.net, details: { choice, numbers, outcome: result.outcome, net: result.net, payout: result.payout, game: result.details } };
+  if (EconomyOperation?.findById && EconomyOperation?.create) {
+    const loss = Math.max(0, -result.net);
+    const dayKey = dailyCycle(now).dayKey;
+    const checks = [];
+    if (casino.cooldownMs > 0) checks.push({ $or: [
+      { lastCasinoAt: null }, { lastCasinoAt: { $exists: false } },
+      { lastCasinoAt: { $lte: new Date(now - casino.cooldownMs) } },
+    ] });
+    if (loss && casino.dailyLossLimit > 0) checks.push({ $or: [
+      { casinoLossDay: { $ne: dayKey } },
+      { $expr: { $lte: [{ $add: [{ $ifNull: ['$casinoLossToday', 0] }, loss] }, casino.dailyLossLimit] } },
+    ] });
+    const setStage = { wallet: { $add: [{ $ifNull: ['$wallet', 0] }, result.net] }, lastCasinoAt: new Date(now) };
+    if (loss) {
+      setStage.casinoLossDay = dayKey;
+      setStage.casinoLossToday = { $cond: [
+        { $eq: ['$casinoLossDay', dayKey] },
+        { $add: [{ $ifNull: ['$casinoLossToday', 0] }, loss] },
+        loss,
+      ] };
+    }
+    const key = 'casino:' + (interactionId || crypto.randomUUID());
+    const committed = await runEconomicOperation({
+      operationId: key, guildId, kind: 'casino_game',
+      request: { userId, game, amount, choice, numbers: numbers || null },
+      execution: {
+        legs: [{ userId, guards: {
+          wallet: { $gte: amount, ...(result.net > 0 ? { $lte: limits.wallet - result.net } : {}) },
+          activeCasinoSessionId: { $in: [null, ''] },
+          ...(result.net > 0 ? walletCapacityGuard(limits.wallet, result.net) : {}),
+          ...(checks.length ? { $and: checks } : {}),
+        }, pipeline: [{ $set: {
+          wallet: setStage.wallet,
+          recentOperationKeys: { $setUnion: [{ $ifNull: ['$recentOperationKeys', []] }, [key + ':leg:0']] },
+          lastCasinoAt: setStage.lastCasinoAt,
+          ...(loss ? { casinoLossDay: dayKey, casinoLossToday: setStage.casinoLossToday } : {}),
+        } }], failure: 'Confira a carteira, o limite diário de perdas e o intervalo entre partidas.' }],
+        transactions: [transaction],
+        result: { ...result, amount },
+      },
+    });
+    const saved = committed.result || result;
+    const account = committed.accounts?.[0] || await getAccount(guildId, userId);
+    return { ...saved, amount, account, duplicate: Boolean(committed.duplicate) };
   }
   await ensureAccount(guildId, userId);
-  const query = { guildId, userId, wallet: { $gte: amount } };
-  if (result.net > 0) query.wallet.$lte = MAX_BALANCE - result.net;
+  const query = { guildId, userId, wallet: { $gte: amount }, activeCasinoSessionId: { $in: [null, ''] } };
+  if (result.net > 0) query.wallet.$lte = limits.wallet - result.net;
   const account = await EconomyAccount.findOneAndUpdate(query, { $inc: { wallet: result.net } }, { returnDocument: 'after' });
   if (!account) throw new EconomyError('A aposta precisa caber na sua carteira atual. Confira seu saldo e tente novamente.');
-  await auditAfterAccountUpdate({ guildId, actorId: userId, userId, operation: 'casino_' + game, currency: 'fragments', amount, walletDelta: result.net, details: { choice, outcome: result.outcome, net: result.net } });
+  await auditAfterAccountUpdate(transaction);
   return { ...result, amount, account: account.toObject ? account.toObject() : account };
 }
 
@@ -229,11 +484,13 @@ async function convertOrbes({ guildId, userId, source, amount, actorId = userId 
 
 async function claimWork({ guildId, userId, now = Date.now(), random = crypto.randomInt }) {
   const settings = await getSettings(guildId);
+  if (settings.work?.enabled === false) throw new EconomyError('O trabalho está pausado pela equipe.');
   const reward = random(settings.work.min, settings.work.max + 1);
+  const limits = economyLimits(settings);
   await ensureAccount(guildId, userId);
   const cutoff = new Date(now - settings.work.cooldownMs);
   const account = await EconomyAccount.findOneAndUpdate(
-    { guildId, userId, $or: [{ lastWorkAt: null }, { lastWorkAt: { $exists: false } }, { lastWorkAt: { $lte: cutoff } }], wallet: { $lte: MAX_BALANCE - reward } },
+    { guildId, userId, $or: [{ lastWorkAt: null }, { lastWorkAt: { $exists: false } }, { lastWorkAt: { $lte: cutoff } }], wallet: { $lte: limits.wallet - reward }, ...walletCapacityGuard(limits.wallet, reward) },
     { $inc: { wallet: reward }, $set: { lastWorkAt: new Date(now) } },
     { returnDocument: 'after' },
   );
@@ -247,8 +504,92 @@ async function claimWork({ guildId, userId, now = Date.now(), random = crypto.ra
   return { account: account.toObject ? account.toObject() : account, reward, settings };
 }
 
+async function claimAdventure({ guildId, userId, now = Date.now(), random = crypto.randomInt }) {
+  const settings = await getSettings(guildId);
+  const rule = settings?.adventure || { enabled: true, min: 80, max: 800, cooldownMs: 7200000 };
+  if (rule.enabled === false) throw new EconomyError('As expedições estão pausadas pela equipe.');
+  assertAmount(rule.min, 'Recompensa mínima da expedição', { min: 0 });
+  assertAmount(rule.max, 'Recompensa máxima da expedição', { min: 0 });
+  if (rule.min > rule.max) throw new EconomyError('As recompensas de expedição precisam de revisão da equipe.');
+  const reward = random(rule.min, rule.max + 1);
+  await ensureAccount(guildId, userId);
+  const cutoff = new Date(now - rule.cooldownMs);
+  const walletLimit = Math.min(MAX_BALANCE, Number(settings?.economy?.walletLimit) || MAX_BALANCE);
+  const account = await EconomyAccount.findOneAndUpdate(
+    { guildId, userId, $or: [{ lastAdventureAt: null }, { lastAdventureAt: { $exists: false } }, { lastAdventureAt: { $lte: cutoff } }], wallet: { $lte: walletLimit - reward }, ...walletCapacityGuard(walletLimit, reward) },
+    { $inc: { wallet: reward }, $set: { lastAdventureAt: new Date(now) } },
+    { returnDocument: 'after' },
+  );
+  if (!account) {
+    const current = await EconomyAccount.findOne({ guildId, userId });
+    const wait = remainingMs(current?.lastAdventureAt, rule.cooldownMs, now);
+    if (wait) throw new EconomyError('A trilha abre de novo em **' + formatDuration(wait) + '**.', { remainingMs: wait });
+    throw new EconomyError('O limite de saldo impede receber essa recompensa.');
+  }
+  await auditAfterAccountUpdate({ guildId, actorId: userId, userId, operation: 'adventure_reward', currency: 'fragments', amount: reward, walletDelta: reward, details: { collectedAt: new Date(now) } });
+  return { account: account.toObject ? account.toObject() : account, reward, settings };
+}
+
+async function claimCrime({ guildId, userId, now = Date.now(), random = crypto.randomInt }) {
+  const settings = await getSettings(guildId);
+  const rule = settings?.crime || { enabled: true, min: 100, max: 1200, fineMin: 50, fineMax: 400, failChancePercent: 35, cooldownMs: 10800000 };
+  if (rule.enabled === false) throw new EconomyError('Essa atividade está suspensa pela equipe.');
+  const failed = random(0, 100) < rule.failChancePercent;
+  const amount = failed ? random(rule.fineMin, rule.fineMax + 1) : random(rule.min, rule.max + 1);
+  await ensureAccount(guildId, userId);
+  const current = await EconomyAccount.findOne({ guildId, userId }).lean();
+  const fine = failed ? Math.min(amount, Number(current?.wallet || 0)) : amount;
+  const delta = failed ? -fine : amount;
+  const cutoff = new Date(now - rule.cooldownMs);
+  const walletLimit = Math.min(MAX_BALANCE, Number(settings?.economy?.walletLimit) || MAX_BALANCE);
+  const account = await EconomyAccount.findOneAndUpdate(
+    {
+      guildId, userId,
+      $or: [{ lastCrimeAt: null }, { lastCrimeAt: { $exists: false } }, { lastCrimeAt: { $lte: cutoff } }],
+      wallet: failed ? { $gte: fine } : { $lte: walletLimit - amount },
+      ...(!failed ? walletCapacityGuard(walletLimit, amount) : {}),
+    },
+    { $inc: { wallet: delta }, $set: { lastCrimeAt: new Date(now) } },
+    { returnDocument: 'after' },
+  );
+  if (!account) {
+    const latest = await EconomyAccount.findOne({ guildId, userId });
+    const wait = remainingMs(latest?.lastCrimeAt, rule.cooldownMs, now);
+    if (wait) throw new EconomyError('A Kiryu recomenda deixar a poeira baixar por **' + formatDuration(wait) + '**.', { remainingMs: wait });
+    throw new EconomyError('O limite de saldo impede concluir esse resultado.');
+  }
+  await auditAfterAccountUpdate({ guildId, actorId: userId, userId, operation: failed ? 'crime_failed' : 'crime_reward', currency: 'fragments', amount: failed ? fine : amount, walletDelta: delta, details: { success: !failed, collectedAt: new Date(now) } });
+  return { account: account.toObject ? account.toObject() : account, success: !failed, reward: failed ? 0 : amount, fine: failed ? fine : 0, settings };
+}
+
+async function claimPassiveIncome({ guildId, userId, now = Date.now() }) {
+  const settings = await getSettings(guildId);
+  const rule = settings?.passiveIncome || {};
+  const reward = Number(rule.amount) || 0;
+  if (rule.enabled !== true || reward < 1) throw new EconomyError('A renda passiva está desativada pela equipe.');
+  const intervalMs = Math.max(3600000, Number(rule.intervalMs) || 86400000);
+  const limits = economyLimits(settings);
+  await ensureAccount(guildId, userId);
+  const cutoff = new Date(now - intervalMs);
+  const account = await EconomyAccount.findOneAndUpdate({
+    guildId, userId,
+    $or: [{ lastPassiveAt: null }, { lastPassiveAt: { $exists: false } }, { lastPassiveAt: { $lte: cutoff } }],
+    wallet: { $lte: limits.wallet - reward },
+    ...walletCapacityGuard(limits.wallet, reward),
+  }, { $inc: { wallet: reward }, $set: { lastPassiveAt: new Date(now) } }, { returnDocument: 'after' });
+  if (!account) {
+    const current = await EconomyAccount.findOne({ guildId, userId });
+    const wait = remainingMs(current?.lastPassiveAt, intervalMs, now);
+    if (wait) throw new EconomyError('Sua renda passiva ficará disponível em **' + formatDuration(wait) + '**.', { remainingMs: wait });
+    throw new EconomyError('O limite de saldo impede receber essa renda passiva.');
+  }
+  await auditAfterAccountUpdate({ guildId, actorId: userId, userId, operation: 'passive_income', currency: 'fragments', amount: reward, walletDelta: reward });
+  return { account: account.toObject ? account.toObject() : account, reward, intervalMs };
+}
+
 async function claimDaily({ guildId, userId, now = Date.now(), random = crypto.randomInt }) {
   const settings = await getSettings(guildId);
+  if (settings.daily?.enabled === false) throw new EconomyError('O daily está temporariamente pausado pela equipe.');
   const current = await ensureAccount(guildId, userId);
   const { dayKey, nextResetAt } = dailyCycle(now);
   // Preserve a claim made before the calendar-key migration if it happened
@@ -275,8 +616,9 @@ async function claimDaily({ guildId, userId, now = Date.now(), random = crypto.r
     }
   }
   const orbBounds = Object.fromEntries(ORB_TYPES.filter((type) => orbs[type]).map((type) => ['orbs.' + type, { $lte: MAX_BALANCE - orbs[type] }]));
+  const limits = economyLimits(settings);
   const account = await EconomyAccount.findOneAndUpdate(
-    { guildId, userId, dailyClaimDay: { $ne: dayKey }, wallet: { $lte: MAX_BALANCE - fragments }, ...orbBounds },
+    { guildId, userId, dailyClaimDay: { $ne: dayKey }, wallet: { $lte: limits.wallet - fragments }, ...walletCapacityGuard(limits.wallet, fragments), ...orbBounds },
     update,
     { returnDocument: 'after' },
   );
@@ -322,8 +664,40 @@ function itemAvailability(item, now = new Date()) {
   return { available: true, reason: '' };
 }
 
-async function addInventoryEntry({ guildId, userId, item, quantity }) {
+async function addInventoryEntry({ guildId, userId, item, quantity, deliveryId = null }) {
   const snapshot = itemSnapshot(item);
+  if (deliveryId && snapshot.stackable) {
+    const slot = snapshot.selectedChoice ? 'choice:' + snapshot.selectedChoice.value : 'stack';
+    const filter = { guildId, userId, itemId: item._id, slot, deliveryIds: { $ne: String(deliveryId) }, quantity: { $lte: MAX_BALANCE - quantity } };
+    try {
+      const updated = await EconomyInventory.findOneAndUpdate(filter, {
+        $inc: { quantity }, $addToSet: { deliveryIds: String(deliveryId) },
+        $setOnInsert: { guildId, userId, itemId: item._id, sku: item.sku, slot, itemSnapshot: snapshot },
+      }, { upsert: true, returnDocument: 'after', setDefaultsOnInsert: false });
+      return updated;
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      const duplicate = await EconomyInventory.findOne({ guildId, userId, itemId: item._id, slot, deliveryIds: String(deliveryId) }).lean();
+      if (duplicate) return duplicate;
+      throw error;
+    }
+  }
+  if (deliveryId && !snapshot.stackable) {
+    const entries = [];
+    for (let index = 0; index < quantity; index += 1) {
+      const slot = 'delivery:' + String(deliveryId) + ':' + index;
+      const filter = { guildId, userId, itemId: item._id, slot };
+      try {
+        entries.push(await EconomyInventory.findOneAndUpdate(filter, {
+          $setOnInsert: { guildId, userId, itemId: item._id, sku: item.sku, slot, quantity: 1, itemSnapshot: snapshot, deliveryIds: [String(deliveryId)] },
+        }, { upsert: true, returnDocument: 'after', setDefaultsOnInsert: false }));
+      } catch (error) {
+        if (error?.code !== 11000) throw error;
+        entries.push(await EconomyInventory.findOne(filter).lean());
+      }
+    }
+    return entries;
+  }
   if (snapshot.stackable) {
     const slot = snapshot.selectedChoice ? 'choice:' + snapshot.selectedChoice.value : 'stack';
     const filter = { guildId, userId, itemId: item._id, slot };
@@ -367,7 +741,9 @@ async function applyItemAction(accountQuery, item) {
   const amount = Number(item.actionAmount || 0);
   if (!amount || action === 'none') return null;
   if (action === 'grant_fragments') {
-    const account = await EconomyAccount.findOneAndUpdate({ ...accountQuery, wallet: { $lte: MAX_BALANCE - amount } }, { $inc: { wallet: amount } }, { returnDocument: 'after' });
+    const settings = await getSettings(accountQuery.guildId);
+    const limits = economyLimits(settings);
+    const account = await EconomyAccount.findOneAndUpdate({ ...accountQuery, wallet: { $lte: limits.wallet - amount }, ...walletCapacityGuard(limits.wallet, amount) }, { $inc: { wallet: amount } }, { returnDocument: 'after' });
     if (!account) throw new EconomyError('O limite de saldo impede executar o efeito do item.');
     return account;
   }
@@ -515,7 +891,7 @@ async function restoreConsumedInventory(entry) {
 }
 
 async function listInventory(guildId, userId, { page = 0, pageSize = 5, filter = 'all' } = {}) {
-  const query = { guildId, userId, 'itemSnapshot.inventoryVisible': { $ne: false } };
+  const query = { guildId, userId, quantity: { $gt: 0 }, 'itemSnapshot.inventoryVisible': { $ne: false } };
   if (filter === 'usable') query['itemSnapshot.usable'] = true;
   else if (filter === 'persistent') query['itemSnapshot.consumeOnUse'] = false;
   else if (filter === 'not_usable') query['itemSnapshot.usable'] = false;
@@ -529,7 +905,7 @@ async function listInventory(guildId, userId, { page = 0, pageSize = 5, filter =
 async function useInventoryItem({ guildId, userId, sku, inventoryId = null, now = new Date() }) {
   await ensureAccount(guildId, userId);
   return runStandaloneOperation(async () => {
-    const query = inventoryId ? { guildId, userId, _id: inventoryId } : { guildId, userId, sku };
+    const query = inventoryId ? { guildId, userId, _id: inventoryId, quantity: { $gt: 0 } } : { guildId, userId, sku, quantity: { $gt: 0 } };
     const entryQuery = EconomyInventory.findOne(query);
     if (!inventoryId && entryQuery.sort) entryQuery.sort({ slot: 1 });
     const entry = await (entryQuery.lean ? entryQuery.lean() : entryQuery);
@@ -621,6 +997,8 @@ async function claimCollectRules({ guildId, userId, roleIds = [], ruleIds, now =
     for (const rule of rules) if (rule.orbType && rule.orbAmount) orbDelta[rule.orbType] = (orbDelta[rule.orbType] || 0) + rule.orbAmount;
     const inc = { wallet: fragments };
     for (const [type, amount] of Object.entries(orbDelta)) inc['orbs.' + type] = amount;
+    const settings = await getSettings(guildId);
+    const limits = economyLimits(settings);
     const orbBounds = Object.fromEntries(Object.entries(orbDelta).map(([type, amount]) => ['orbs.' + type, { $lte: MAX_BALANCE - amount }]));
     const claims = rules.map((rule) => ({
       _id: new mongoose.Types.ObjectId(), guildId, userId, ruleId: rule._id,
@@ -638,7 +1016,7 @@ async function claimCollectRules({ guildId, userId, roleIds = [], ruleIds, now =
       throw error;
     }
     const account = await EconomyAccount.findOneAndUpdate(
-      { guildId, userId, wallet: { $lte: MAX_BALANCE - fragments }, ...orbBounds },
+      { guildId, userId, wallet: { $lte: limits.wallet - fragments }, ...walletCapacityGuard(limits.wallet, fragments), ...orbBounds },
       { $inc: inc },
       { returnDocument: 'after' },
     );
@@ -656,6 +1034,62 @@ async function listTransactions(guildId, userId, limit = 25, page = 0) {
   return EconomyTransaction.find({ guildId, ...(userId ? { userId } : {}) }).sort({ createdAt: -1 }).skip(Math.max(0, page) * size).limit(size).lean();
 }
 
+async function getMoneyLeaderboard(guildId, category = 'wealth', limit = 10) {
+  if (!['wallet', 'bank', 'wealth'].includes(category)) throw new RangeError('Categoria de ranking inválida.');
+  const size = Math.max(1, Math.min(25, Number(limit) || 10));
+  const score = category === 'wealth' ? { $add: [{ $ifNull: ['$wallet', 0] }, { $ifNull: ['$bank', 0] }] } : '$' + category;
+  return EconomyAccount.aggregate([
+    { $match: { guildId } },
+    { $project: { userId: 1, wallet: { $ifNull: ['$wallet', 0] }, bank: { $ifNull: ['$bank', 0] }, score } },
+    { $sort: { score: -1, userId: 1 } },
+    { $limit: size },
+  ]);
+}
+
+async function adjustRoleFragments({ guildId, actorId, memberIds, amount, mode, accountType = 'wallet', interactionId = null }) {
+  if (!['add', 'remove'].includes(mode)) throw new RangeError('Operação em massa inválida.');
+  assertAmount(amount, 'Quantidade');
+  const uniqueIds = [...new Set((memberIds || []).map(String))];
+  if (!uniqueIds.length) throw new EconomyError('Esse cargo não possui membros para ajustar.');
+  let succeeded = 0;
+  let failed = 0;
+  const failures = [];
+  for (let offset = 0; offset < uniqueIds.length; offset += 10) {
+    const results = await Promise.allSettled(uniqueIds.slice(offset, offset + 10).map((userId) => adjustFragments({
+      guildId, actorId, userId, amount, mode, accountType, operation: 'admin_fragments_' + mode + '_role',
+      interactionId: interactionId ? interactionId + ':' + userId : null,
+    })));
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') succeeded += 1;
+      else {
+        failed += 1;
+        failures.push({ userId: uniqueIds[offset + index], message: result.reason?.publicMessage || result.reason?.message || 'falha' });
+      }
+    });
+  }
+  return { total: uniqueIds.length, succeeded, failed, failures: failures.slice(0, 10) };
+}
+
+async function getEconomicAudit(guildId, { limit = 20 } = {}) {
+  const settings = await getSettings(guildId);
+  const limits = economyLimits(settings);
+  const [accountCount, walletTotals, bankTotals, invalidAccounts, unresolved, recentTransactions, manualListings, manualTrades, manualAuctions, manualSessions] = await Promise.all([
+    EconomyAccount.countDocuments({ guildId }),
+    EconomyAccount.aggregate([{ $match: { guildId } }, { $group: { _id: null, total: { $sum: '$wallet' }, minimum: { $min: '$wallet' }, maximum: { $max: '$wallet' } } }]),
+    EconomyAccount.aggregate([{ $match: { guildId } }, { $group: { _id: null, total: { $sum: '$bank' }, minimum: { $min: '$bank' }, maximum: { $max: '$bank' } } }]),
+    EconomyAccount.find({ guildId, $or: [
+      { wallet: { $lt: 0 } }, { bank: { $lt: 0 } }, { wallet: { $gt: limits.wallet } }, { bank: { $gt: limits.bank } },
+    ] }).select('userId wallet bank').limit(25).lean(),
+    EconomyOperation.find({ guildId, state: { $in: ['pending', 'manual_review'] } }).sort({ updatedAt: 1 }).limit(limit).lean(),
+    EconomyTransaction.find({ guildId }).sort({ createdAt: -1 }).limit(limit).lean(),
+    MarketListing.find({ guildId, state: 'manual_review' }).sort({ updatedAt: -1 }).limit(limit).lean(),
+    TradeSession.find({ guildId, state: 'manual_review' }).sort({ updatedAt: -1 }).limit(limit).lean(),
+    Auction.find({ guildId, state: 'manual_review' }).sort({ updatedAt: -1 }).limit(limit).lean(),
+    GameSession.find({ guildId, status: 'manual_review' }).sort({ updatedAt: -1 }).limit(limit).lean(),
+  ]);
+  return { accountCount, wallet: walletTotals[0] || { total: 0, minimum: 0, maximum: 0 }, bank: bankTotals[0] || { total: 0, minimum: 0, maximum: 0 }, limits, invalidAccounts, unresolved, recentTransactions, manualListings, manualTrades, manualAuctions, manualSessions };
+}
+
 async function deleteCatalogItem({ guildId, actorId, sku }) {
   return runStandaloneOperation(async () => {
     const item = await EconomyItem.findOneAndUpdate(
@@ -670,8 +1104,10 @@ async function deleteCatalogItem({ guildId, actorId, sku }) {
 }
 
 module.exports = {
-  runStandaloneOperation, ensureAccount, getAccount, getSettings, adjustFragments, adjustOrbs, bankTransfer, transferFragments, playCasino,
+  runStandaloneOperation, ensureAccount, getAccount, getSettings, adjustFragments, adjustOrbs, bankTransfer, transferFragments, playCasino, assertCasinoChannel, walletCapacityGuard,
   convertOrbes, claimWork, claimDaily, itemAvailability, itemSnapshot, buyItem, getStoreItem, getStorePage,
   listInventory, useInventoryItem, deliverItem, removeInventoryItems, getClaimableRules,
   claimCollectRules, listTransactions, deleteCatalogItem,
+  claimAdventure, claimCrime, claimPassiveIncome, getMoneyLeaderboard, getEconomicAudit, adjustRoleFragments, applyAccountMutation, runEconomicOperation, resumeEconomicOperation, replayPendingEconomicOperations,
+  addInventoryEntry,
 };

@@ -18,6 +18,38 @@ const lines = {
     'Você encarou o expediente e venceu. O trabalho não teve a menor chance.',
     'A comunidade ganhou uma ajuda e você ganhou Fragmentos. Negócio justo.',
   ],
+  adventure: [
+    'A trilha foi percorrida, o resultado registrado e seus ganhos chegaram à carteira.',
+    'Expedição concluída. A Kiryu conferiu o mapa antes de liberar a recompensa.',
+  ],
+  crimeWin: [
+    'Golpe inteiramente fictício concluído. A Kiryu já anotou seu próximo intervalo.',
+    'Plano de faz de conta bem executado. A recompensa veio sem uma única vítima.',
+  ],
+  crimeFail: [
+    'A tentativa fictícia foi interrompida. Respire: a próxima rodada espera o cooldown.',
+    'A Kiryu fechou a ocorrência de brincadeira e anotou a multa virtual.',
+  ],
+  passiveIncome: [
+    'O rendimento comunitário chegou à carteira conforme as regras publicadas.',
+    'A reserva passiva liberou sua parcela. A Kiryu conferiu o relógio antes de pagar.',
+  ],
+  marketList: [
+    'Anúncio publicado. A Kiryu guardou as unidades no cofre até a venda ou retirada.',
+    'A vitrine ganhou um item. O estoque ficou reservado para evitar dois compradores no mesmo pacote.',
+  ],
+  trade: [
+    'A troca ficou registrada dos dois lados. A Kiryu conferiu cada unidade antes de fechar.',
+    'Proposta aceita. Recursos só mudam de mãos quando ambos confirmam a mesma oferta.',
+  ],
+  gameRoom: [
+    'Sala registrada. A Kiryu deixou o estado salvo para a partida sobreviver a uma reinicialização.',
+    'As regras estão no painel; cada jogada válida atualiza a sala compartilhada.',
+  ],
+  auction: [
+    'Leilão aberto. O item ficou reservado e os lances serão conferidos pela ordem registrada.',
+    'A vitrine de lances está pronta. A Kiryu anotou os prazos e guardou o item.',
+  ],
   transfer: [
     'A bolsa mudou de mãos sem derrubar um Fragmento pelo caminho.',
     'Transferência feita. A Kiryu registrou; a amizade agora é com vocês.',

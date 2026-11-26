@@ -54,17 +54,19 @@ async function auditAdmin(data) {
   }
 }
 
-async function configureWork({ guildId, actorId, min, max, cooldownMinutes }) {
-  assertAmount(min, 'Recompensa mínima', { min: 0, max: MAX_AMOUNT });
-  assertAmount(max, 'Recompensa máxima', { min: 0, max: MAX_AMOUNT });
-  if (min > max) throw new RangeError('A recompensa mínima não pode superar a máxima.');
-  assertAmount(cooldownMinutes, 'Cooldown em minutos', { min: 1, max: 525600 });
+async function configureWork({ guildId, actorId, min, max, cooldownMinutes, enabled }) {
+  if (min !== undefined) assertAmount(min, 'Recompensa mínima', { min: 0, max: MAX_AMOUNT });
+  if (max !== undefined) assertAmount(max, 'Recompensa máxima', { min: 0, max: MAX_AMOUNT });
+  if (min !== undefined && max !== undefined && min > max) throw new RangeError('A recompensa mínima não pode superar a máxima.');
+  if (cooldownMinutes !== undefined) assertAmount(cooldownMinutes, 'Cooldown em minutos', { min: 1, max: 525600 });
+  if (enabled === undefined && (min === undefined || max === undefined || cooldownMinutes === undefined)) throw new RangeError('Informe as recompensas, o intervalo ou a disponibilidade do trabalho.');
   const settings = await getSettings(guildId);
-  settings.work.min = min;
-  settings.work.max = max;
-  settings.work.cooldownMs = cooldownMinutes * 60000;
+  if (min !== undefined) settings.work.min = min;
+  if (max !== undefined) settings.work.max = max;
+  if (cooldownMinutes !== undefined) settings.work.cooldownMs = cooldownMinutes * 60000;
+  if (enabled !== undefined) settings.work.enabled = Boolean(enabled);
   await settings.save();
-  await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_work_config', currency: 'none', details: { min, max, cooldownMinutes } });
+  await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_work_config', currency: 'none', details: { min, max, cooldownMinutes, enabled } });
   return settings;
 }
 
@@ -80,13 +82,33 @@ async function configureOrbConversion({ guildId, actorId, conversionRate }) {
 
 async function configureCasino({ guildId, actorId, changes }) {
   const games = ['flip', 'dice', 'slots'];
+  const extendedGames = ['blackjack', 'roulette', 'mines', 'highlow', 'wheel', 'keno', 'treasure', 'racing', 'lottery', 'poker'];
   const patch = {};
   if (changes.maxBet !== undefined) patch.maxBet = assertAmount(changes.maxBet, 'Aposta máxima', { min: 1, max: 1000000000 });
+  for (const field of ['cooldownMs', 'dailyLossLimit', 'sessionMinutes', 'turnTimeoutMinutes', 'lotteryTicketPrice', 'maxLotteryTicketsPerMember']) {
+    if (changes[field] === undefined) continue;
+    const limits = {
+      cooldownMs: [0, 86400000], dailyLossLimit: [0, Number.MAX_SAFE_INTEGER], sessionMinutes: [1, 120], turnTimeoutMinutes: [1, 60],
+      lotteryTicketPrice: [1, Number.MAX_SAFE_INTEGER], maxLotteryTicketsPerMember: [1, 1000],
+    }[field];
+    patch[field] = assertAmount(changes[field], field, { min: limits[0], max: limits[1] });
+  }
+  if (changes.allowedChannelIds !== undefined) {
+    if (!Array.isArray(changes.allowedChannelIds) || changes.allowedChannelIds.length > 5 || changes.allowedChannelIds.some((id) => !/^\d{5,25}$/.test(String(id)))) {
+      throw new RangeError('Escolha até cinco canais de texto válidos.');
+    }
+    patch.allowedChannelIds = [...new Set(changes.allowedChannelIds.map(String))];
+  }
   for (const game of games) {
     if (!changes[game]) continue;
     patch[game] = {};
     if (changes[game].enabled !== undefined) patch[game].enabled = Boolean(changes[game].enabled);
     if (changes[game].multiplier !== undefined) patch[game].multiplier = assertAmount(changes[game].multiplier, 'Multiplicador de pagamento', { min: 2, max: 100 });
+  }
+  for (const game of extendedGames) {
+    if (!changes.games?.[game]) continue;
+    patch.games ||= {};
+    patch.games[game] = { enabled: Boolean(changes.games[game].enabled) };
   }
   if (!Object.keys(patch).length) throw new RangeError('Informe uma configuração de cassino para alterar.');
   const settings = await getSettings(guildId);
@@ -96,10 +118,62 @@ async function configureCasino({ guildId, actorId, changes }) {
   }
   for (const [key, value] of Object.entries(patch)) {
     if (key === 'maxBet') settings.casino.maxBet = value;
+    else if (['cooldownMs', 'dailyLossLimit', 'sessionMinutes', 'turnTimeoutMinutes', 'lotteryTicketPrice', 'maxLotteryTicketsPerMember', 'allowedChannelIds'].includes(key)) settings.casino[key] = value;
+    else if (key === 'games') {
+      for (const [game, config] of Object.entries(value)) settings.casino.games[game].enabled = config.enabled;
+    }
     else Object.assign(settings.casino[key], value);
   }
   await settings.save();
   await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_casino_config', currency: 'none', details: patch });
+  return settings;
+}
+
+async function configureIncome({ guildId, actorId, changes }) {
+  const patch = {};
+  for (const source of ['adventure', 'crime', 'passiveIncome']) {
+    if (!changes[source]) continue;
+    const input = changes[source];
+    const normalized = {};
+    if (input.enabled !== undefined) normalized.enabled = Boolean(input.enabled);
+    for (const field of ['min', 'max', 'fineMin', 'fineMax', 'amount']) {
+      if (input[field] !== undefined) normalized[field] = assertAmount(input[field], source + ' ' + field, { min: 0, max: MAX_AMOUNT });
+    }
+    if (input.failChancePercent !== undefined) normalized.failChancePercent = assertAmount(input.failChancePercent, 'Chance de falha', { min: 0, max: 100 });
+    if (input.cooldownMinutes !== undefined) normalized.cooldownMs = assertAmount(input.cooldownMinutes, 'Cooldown em minutos', { min: 1, max: 525600 }) * 60000;
+    if (input.intervalHours !== undefined) normalized.intervalMs = assertAmount(input.intervalHours, 'Intervalo em horas', { min: 1, max: 8760 }) * 3600000;
+    if (Object.keys(normalized).length) patch[source] = normalized;
+  }
+  for (const [source, fields] of Object.entries(patch)) {
+    if (fields.min !== undefined && fields.max !== undefined && fields.min > fields.max) throw new RangeError('O mínimo não pode superar o máximo em ' + source + '.');
+    if (fields.fineMin !== undefined && fields.fineMax !== undefined && fields.fineMin > fields.fineMax) throw new RangeError('A multa mínima não pode superar a máxima.');
+  }
+  if (!Object.keys(patch).length) throw new RangeError('Informe uma fonte de renda para alterar.');
+  const settings = await getSettings(guildId);
+  for (const [source, fields] of Object.entries(patch)) Object.assign(settings[source], fields);
+  await settings.save();
+  await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_income_config', currency: 'none', details: patch });
+  return settings;
+}
+
+async function configureEconomy({ guildId, actorId, changes }) {
+  const limits = {
+    initialWallet: [0, MAX_AMOUNT], initialBank: [0, MAX_AMOUNT], walletLimit: [1, MAX_AMOUNT], bankLimit: [1, MAX_AMOUNT],
+    marketFeePercent: [0, 50], marketListingDays: [1, 30], maxListingsPerMember: [1, 100], auctionFeePercent: [0, 50],
+    auctionMinIncrement: [1, MAX_AMOUNT], tradeExpiryHours: [1, 168], lotteryFeePercent: [0, 50],
+  };
+  const patch = {};
+  for (const [field, value] of Object.entries(changes || {})) {
+    if (!Object.hasOwn(limits, field) || value === undefined) continue;
+    patch[field] = assertAmount(value, field, { min: limits[field][0], max: limits[field][1] });
+  }
+  if (!Object.keys(patch).length) throw new RangeError('Informe uma configuração econômica para alterar.');
+  if (patch.initialWallet !== undefined && patch.walletLimit !== undefined && patch.initialWallet > patch.walletLimit) throw new RangeError('O saldo inicial de carteira não pode superar o limite definido.');
+  if (patch.initialBank !== undefined && patch.bankLimit !== undefined && patch.initialBank > patch.bankLimit) throw new RangeError('O saldo inicial de banco não pode superar o limite definido.');
+  const settings = await getSettings(guildId);
+  Object.assign(settings.economy, patch);
+  await settings.save();
+  await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_economy_config', currency: 'none', details: patch });
   return settings;
 }
 
@@ -111,18 +185,22 @@ function validateRewardRange(range, label) {
   return { min: range.min, max: range.max };
 }
 
-async function configureDaily({ guildId, actorId, fragmentRange, orbRanges = {} }) {
-  const fragments = validateRewardRange(fragmentRange, 'Fragmentos diários');
-  const orbs = Object.fromEntries(ORB_TYPES.map((type) => [
+async function configureDaily({ guildId, actorId, fragmentRange, orbRanges = {}, enabled }) {
+  const fragments = fragmentRange ? validateRewardRange(fragmentRange, 'Fragmentos diários') : null;
+  const orbs = fragments ? Object.fromEntries(ORB_TYPES.map((type) => [
     type,
     validateRewardRange(orbRanges[type] || { min: 0, max: 0 }, 'Orbes ' + type),
-  ]));
+  ])) : null;
+  if (!fragments && enabled === undefined) throw new RangeError('Informe recompensas ou a disponibilidade do daily.');
   const settings = await getSettings(guildId);
-  settings.daily.rewardRanges.fragments = fragments;
-  for (const type of ORB_TYPES) settings.daily.rewardRanges.orbs[type] = orbs[type];
-  settings.daily.rangesConfigured = true;
+  if (fragments) {
+    settings.daily.rewardRanges.fragments = fragments;
+    for (const type of ORB_TYPES) settings.daily.rewardRanges.orbs[type] = orbs[type];
+    settings.daily.rangesConfigured = true;
+  }
+  if (enabled !== undefined) settings.daily.enabled = Boolean(enabled);
   await settings.save();
-  await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_daily_config', currency: 'mixed', amount: fragments.min, details: { fragments, orbs } });
+  await auditAdmin({ guildId, actorId, userId: actorId, operation: 'admin_daily_config', currency: fragments ? 'mixed' : 'none', amount: fragments?.min || 0, details: { fragments, orbs, enabled } });
   return settings;
 }
 
@@ -243,6 +321,6 @@ async function setCatalogStock({ guildId, actorId, sku, stock }) {
 }
 
 module.exports = {
-  parseSku, validateItem, configureWork, configureDaily, configureOrbConversion, configureCasino, normalizeRule, createCollectRule,
+  parseSku, validateItem, configureWork, configureDaily, configureOrbConversion, configureCasino, configureIncome, configureEconomy, normalizeRule, createCollectRule,
   editCollectRule, removeCollectRule, createCatalogItem, editCatalogItem, setCatalogStock,
 };

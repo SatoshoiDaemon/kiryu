@@ -103,6 +103,7 @@ function createContainer(content, rows = [], accentColor = config.visual.brand, 
   const split = options.header === false ? { body: content } : splitHeader(content);
   if (split.title) container.addSectionComponents(headerSection(split.title, split.subtitle, systemForColor(accentColor)));
   if (split.body) container.addTextDisplayComponents(new TextDisplayBuilder().setContent(split.body));
+  if (options.mediaGallery) container.addMediaGalleryComponents(options.mediaGallery);
   if (options.sections) for (const section of options.sections) container.addSectionComponents(section);
   for (const row of rows) container.addActionRowComponents(row);
   return decorateContainer(container, { divider: options.divider !== false, now: options.now });

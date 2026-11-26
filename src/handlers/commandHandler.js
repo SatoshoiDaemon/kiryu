@@ -11,6 +11,11 @@ const { say } = require('../modules/personality');
 const config = require('../config');
 const { handleCommunityInteraction } = require('../modules/communityCommands');
 const { handleAdminInteraction } = require('../modules/adminCommands');
+const { handleCasinoInteraction } = require('../modules/casinoInteractions');
+const { handleExchangeInteraction } = require('../modules/exchangeInteractions');
+const { handleTradeInteraction } = require('../modules/tradeInteractions');
+const { handleAuctionInteraction } = require('../modules/auctionInteractions');
+const { handleGameRoomInteraction } = require('../modules/gameRoomInteractions');
 
 async function processInteraction(interaction, client) {
   if (interaction.isChatInputCommand()) {
@@ -40,6 +45,11 @@ async function processInteraction(interaction, client) {
 
   if (interaction.isButton() || interaction.isAnySelectMenu() || interaction.isModalSubmit()) {
     try {
+      if (await handleCasinoInteraction(interaction)) return;
+      if (await handleExchangeInteraction(interaction)) return;
+      if (await handleTradeInteraction(interaction)) return;
+      if (await handleAuctionInteraction(interaction)) return;
+      if (await handleGameRoomInteraction(interaction, client)) return;
       if (await handleAdminInteraction(interaction)) return;
       if (await handleCommunityInteraction(interaction, client)) return;
       if (await handleProfileInteraction(interaction)) return;
