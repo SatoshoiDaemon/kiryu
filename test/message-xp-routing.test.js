@@ -2,12 +2,14 @@ jest.mock('../src/modules/cooldown', () => ({ createCooldownTracker: () => ({ ca
 jest.mock('../src/modules/xpService', () => ({ getGuildConfig: jest.fn(), awardMessageXp: jest.fn() }));
 jest.mock('../src/modules/triggers', () => ({ findTrigger: jest.fn(() => null), chooseResponse: jest.fn(() => null) }));
 jest.mock('../src/modules/levelUpNotifications', () => ({ notifyLevelUp: jest.fn().mockResolvedValue({ status: 'unconfigured' }) }));
+jest.mock('../src/modules/aiConversation', () => ({ handleAIMessage: jest.fn().mockResolvedValue({ status: 'ignored' }) }));
 jest.mock('../src/modules/components', () => ({ replyMessageV2: jest.fn() }));
 jest.mock('../src/handlers/commandHandler', () => ({ handlePrefixMessage: jest.fn() }));
 jest.mock('../src/logger', () => ({ warn: jest.fn() }));
 
 const { getGuildConfig, awardMessageXp } = require('../src/modules/xpService');
 const { notifyLevelUp } = require('../src/modules/levelUpNotifications');
+const { handleAIMessage } = require('../src/modules/aiConversation');
 const { replyMessageV2 } = require('../src/modules/components');
 const { execute } = require('../src/events/messageCreate');
 
@@ -30,6 +32,7 @@ describe('notificação de XP em mensagens', () => {
     await execute(message, client);
     expect(awardMessageXp).toHaveBeenCalledWith('guild', 'member', message.member, 'conversation', expect.any(Object), expect.any(Number), { guildConfig: { triggers: [] } });
     expect(notifyLevelUp).toHaveBeenCalledWith(message.guild, message.author, result);
+    expect(handleAIMessage).toHaveBeenCalledWith(message, client, { guildConfig: { triggers: [] }, hasDeterministicResponse: false });
     expect(replyMessageV2).not.toHaveBeenCalled();
     expect(message.reply).not.toHaveBeenCalled();
   });
@@ -40,5 +43,6 @@ describe('notificação de XP em mensagens', () => {
     expect(awardMessageXp).toHaveBeenCalledTimes(1);
     expect(notifyLevelUp).not.toHaveBeenCalled();
     expect(replyMessageV2).not.toHaveBeenCalled();
+    expect(handleAIMessage).toHaveBeenCalledTimes(1);
   });
 });

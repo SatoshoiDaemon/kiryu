@@ -26,6 +26,7 @@ const { ORBS, ORB_TYPES } = require('./economyUtils');
 const { PALETTES, applyPalette } = require('./appearance');
 const { isAuthorized } = require('./permissions');
 const { BADGE_CATEGORIES } = require('./profileCatalog');
+const { handleAIConfigInteraction, showAIHome, showAIPersonality, importPromptAttachment } = require('./aiConfigPanel');
 
 function button(customId, label, style = ButtonStyle.Secondary) {
   return new ButtonBuilder().setCustomId(customId).setLabel(label).setStyle(style);
@@ -49,6 +50,7 @@ function navRow(interaction = null) {
     { label: 'Gatilhos', value: 'triggers', description: 'Respostas automáticas configuráveis' },
     { label: 'Cassino', value: 'casino', description: 'Ativar jogos, apostas e pagamentos' },
     { label: 'Aparência', value: 'appearance', description: 'Paleta visual do servidor' },
+    { label: 'Kiryu Intelligence', value: 'ai', description: 'Gateway de IA, personalidade, acesso e utilização' },
     { label: 'Badges especiais', value: 'badges', description: 'Criar, editar e atribuir badges da staff' },
   ];
   const visibleSections = interaction && interaction.user.id !== config.ownerId
@@ -447,7 +449,9 @@ async function handleConfigInteraction(interaction) {
   if (!customId.startsWith('config:')) return false;
   const opensModal = interaction.isButton() && [
     'config:xp:message', 'config:xp:voice', 'config:xp:levelup:message', 'config:rewards:conversion', 'config:casino:edit', 'config:trigger:create',
-  ].includes(customId) || (interaction.isButton() && (
+  ].includes(customId) || (interaction.isButton() && [
+    'config:ai:prompt:edit', 'config:ai:generation:basic', 'config:ai:generation:member-limits', 'config:ai:generation:global-limits',
+  ].includes(customId)) || (interaction.isButton() && (
     customId === 'config:rewards:work' || customId.startsWith('config:rewards:daily:') || customId.startsWith('config:rules:edit:') ||
     customId.startsWith('config:trigger:text:') || customId.startsWith('config:trigger:response:add:') ||
     customId.startsWith('config:trigger:response:edit:') || customId.startsWith('config:store:create:') || customId.startsWith('config:store:art:') || customId.startsWith('config:badges:edit:')
@@ -478,7 +482,8 @@ async function handleConfigInteraction(interaction) {
     else await replyV2(interaction, 'Essa área do painel é exclusiva do proprietário.', { ephemeral: true });
     return true;
   }
-  const ownerOnly = customId.startsWith('config:permissions:') || (customId === 'config:nav' && interaction.values?.[0] === 'permissions');
+  const ownerOnly = customId.startsWith('config:permissions:') || customId.startsWith('config:ai:') || customId === 'config:modal:ai:prompt'
+    || (customId === 'config:nav' && ['permissions', 'ai'].includes(interaction.values?.[0]));
   if (ownerOnly && interaction.user.id !== config.ownerId) {
     if (interaction.deferred || interaction.replied) await followUpV2(interaction, 'A seção de permissões é exclusiva do proprietário.');
     else await replyV2(interaction, 'A seção de permissões é exclusiva do proprietário.', { ephemeral: true });
@@ -489,6 +494,9 @@ async function handleConfigInteraction(interaction) {
   }
 
   try {
+    if (customId.startsWith('config:ai:') || customId.startsWith('config:modal:ai:')) {
+      return await handleAIConfigInteraction(interaction);
+    }
     if (interaction.isStringSelectMenu()) {
       const value = interaction.values[0];
       if (customId === 'config:nav') {
@@ -500,6 +508,7 @@ async function handleConfigInteraction(interaction) {
         else if (value === 'triggers') await showTriggers(interaction);
         else if (value === 'casino') await showCasino(interaction);
         else if (value === 'appearance') await showAppearance(interaction);
+        else if (value === 'ai') await showAIHome(interaction);
         else if (value === 'badges') await showBadges(interaction);
         else await showHome(interaction, true);
         return true;
@@ -1265,6 +1274,20 @@ async function executeConfigCommand(interaction) {
     return;
   }
   await getGuildConfig(interaction.guildId);
+  const promptFile = interaction.options.getAttachment?.('prompt_file');
+  if (promptFile) {
+    if (interaction.user.id !== config.ownerId) {
+      await replyV2(interaction, 'A importação do System Prompt é exclusiva do proprietário.');
+      return;
+    }
+    try {
+      const length = await importPromptAttachment(interaction.guildId, promptFile);
+      await showAIPersonality(interaction, false, 'System Prompt importado (' + length.toLocaleString('pt-BR') + ' caracteres) e aplicado imediatamente.');
+    } catch (error) {
+      await replyV2(interaction, error instanceof RangeError ? error.message : 'Não foi possível importar o System Prompt.');
+    }
+    return;
+  }
   await showHome(interaction);
 }
 

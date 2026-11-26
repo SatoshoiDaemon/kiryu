@@ -66,6 +66,22 @@ O Discord só admite `/xp level` como um grupo quando há um subcomando abaixo d
 
 Operações individuais de XP, saldo, Orbes e inventário ficam nos comandos administrativos correspondentes; elas não alteram os registros de configuração permanente.
 
+## Kiryu Intelligence · refinamento 2.2
+
+A IA usa somente o [Square Cloud AI Gateway](https://docs.squarecloud.app/pt-br/api-reference/ai-gateway), em `POST /v2/ai/chat/completions`. Configure `SQUARECLOUD_API_KEY` no ambiente do processo; `.env` é ignorado pelo Git e `.env.example` contém apenas o nome da variável. O Gateway requer uma chave com escopo `ai:chat`.
+
+- A Kiryu conversa em mensagens do servidor quando alguém menciona diretamente o usuário do bot ou responde a uma mensagem da Kiryu. Não existe comando slash de chat. Menções coletivas e de cargos, bots, webhooks e mensagens próprias não iniciam uma conversa.
+- **Kiryu Intelligence** em `/config` ativa o recurso, testa a conexão, mostra disponibilidade e seleciona o modelo. A API atual não oferece endpoint de catálogo para conversas; a documentação e o OpenAPI listam `cubic`, o único modelo mostrado no painel. `cubic-decision` pertence ao endpoint separado de decisões tipadas e não é um modelo de conversa.
+- A seção **Personalidade** permite editar (até 4.000 caracteres no modal), importar e exportar `.txt` e limpar o System Prompt. `/config prompt_file:<arquivo.txt>` importa texto UTF-8 hospedado como anexo pelo Discord, com limite de 128 KiB e até 32.000 caracteres. Alterações são salvas no MongoDB e valem na próxima resposta. Conteúdo dos membros permanece em mensagens `user` e não é acrescentado ao System Prompt.
+- A seção **Geração** expõe somente `temperature`, `max_completion_tokens`, `reasoning_effort` (`none`, `minimal`, `low`, `medium`, `high`) e controles locais de contexto, timeout e consumo. `top_p` não aparece no contrato atual do Gateway e não é enviado. Respostas usam streaming SSE com usage quando disponível; o bot agrupa trechos antes de enviar mensagens Discord com menções desativadas.
+- O contexto recente é isolado por servidor e canal, ordenado por horário e identifica cada autor; também inclui respostas anteriores da Kiryu e a mensagem respondida. A janela local é ajustável de 1 a 100 mensagens e o contexto é reduzido para caber no orçamento configurado. O Gateway documenta até 500 mensagens por chamada.
+- **Canais e acesso** tem seletores nativos para canais e cargos permitidos/bloqueados; bloqueios prevalecem. Há cooldown, limites diários de chamadas/tokens por membro e por servidor, limite de concorrência, timeout, cancelamento ao apagar a mensagem de origem, retentativas seletivas de rede/rate limit e proteção contra duplicatas. Contadores e métricas ficam no MongoDB. Registros de utilização não armazenam prompts nem respostas e expiram em 400 dias.
+- **Estatísticas** mostra chamadas, êxitos, erros, tokens de entrada/saída, modelo, membros, latência média e p95 por dia/semana/mês (UTC). O Gateway retorna usage de tokens, mas não disponibiliza custo por chamada nessa API.
+
+Limites publicados dependem do plano da Square Cloud: Standard documenta contexto de 65.536 tokens, saída de 6.144 e até 4 gerações simultâneas; Pro, 131.072 / 8.192 / 8 simultâneas; Enterprise, 262.144 / 12.288 / 16 simultâneas. A Kiryu usa limites conservadores configuráveis e trata erros `401`, `403`, `400` e `429` sem registrar a credencial nem o corpo privado da resposta. Consulte a [referência oficial do Gateway](https://docs.squarecloud.app/pt-br/api-reference/ai-gateway) para limites atuais e os [recursos e planos](https://squarecloud.app/en/resources/ai-gateway); o [OpenAPI oficial](https://api.squarecloud.app/v2/openapi.json) é a fonte do contrato de parâmetros.
+
+O recurso começa desativado. Configure e teste a conexão em `/config` antes de ativar. Se o Gateway estiver indisponível, a Kiryu informa que não conseguiu responder; XP, comandos, economia, notificações de nível e respostas determinísticas seguem nos seus fluxos independentes.
+
 ## Identidade visual e arquivos de demonstração
 
 - Componentes, paletas e selos por sistema: `src/modules/components.js`, `src/config.js` e `assets/systems/`.
@@ -77,16 +93,16 @@ Operações individuais de XP, saldo, Orbes e inventário ficam nos comandos adm
 
 ## Desempenho e validação
 
-`KIRYU_SLOW_OPERATION_MS` define o limite de aviso (padrão 750 ms). O bot agrega latência de acknowledgement/handler e comandos MongoDB em memória e descarrega contagem, média, pico e histograma no log. Isso não equivale a latência end-to-end em produção; este checkout não tem gateway ou MongoDB de produção conectados.
+`KIRYU_SLOW_OPERATION_MS` define o limite de aviso (padrão 750 ms). O bot agrega latência de acknowledgement/handler, comandos MongoDB e chamadas de IA em memória e descarrega contagem, média, pico e histograma no log. Estatísticas de IA e consumo de tokens também ficam persistidos por servidor. Isso não equivale a latência end-to-end em produção.
 
 No benchmark local reproduzível (`node scripts/benchmark-local.js`, Node v26.13.1), o cartão PNG teve p50 de 87,734 ms sem cache e p95 de 0,024 ms com cache aquecido; serializar os 17 comandos teve p95 de 0,338 ms. A amostra usa fixture local, sem Discord, rede ou MongoDB; os resultados completos ficam em `artifacts/visual-previews/performance-local.json`.
 
-Execute `npm test` para a suíte local sem Discord/MongoDB. `artifacts/visual-previews/components-v2-fixtures.json` contém serializações dos builders reais. As telas são verificadas quanto aos limites de componentes, mas a renderização final depende do cliente Discord.
+Execute `npm test` para a suíte local sem Discord/MongoDB. A integração do Gateway possui testes unitários com respostas simuladas; uma chamada real deve ser feita pelo teste de conexão em `/config` ou durante a validação operacional sem imprimir a chave. `artifacts/visual-previews/components-v2-fixtures.json` contém serializações dos builders reais. As telas são verificadas quanto aos limites de componentes, mas a renderização final depende do cliente Discord.
 
 ## Refinamento pós-lançamento 2.1
 
-A Fase 2 permanece concluída. Esta rodada incorpora feedback de uso real e não substitui nem reduz o escopo planejado para a Fase 3. As mudanças de perfil e notificações estão descritas acima; cinco cartões de estilos diferentes estão disponíveis em `artifacts/visual-previews/`.
+A Fase 2 permanece concluída. As rodadas 2.1 e 2.2 incorporam feedback de uso real e não substituem nem reduzem o escopo planejado para a Fase 3. As mudanças de perfil, notificações e Kiryu Intelligence estão descritas acima; cinco cartões de estilos diferentes estão disponíveis em `artifacts/visual-previews/`.
 
 ## Validação que depende de produção
 
-Este ambiente não tem sessão Discord autenticada nem conexão ao MongoDB do servidor. Portanto, permanecem para a implantação: sincronizar e confirmar a remoção dos comandos antigos no servidor, testar interações com permissões reais, conferir a renderização desktop/mobile e verificar o alcance dos assets/CDN. O workflow Square Cloud existente não foi alterado; erros externos de infraestrutura e deploy devem ser avaliados separadamente de falhas locais de build ou teste.
+Este ambiente não tem sessão Discord autenticada nem conexão ao MongoDB do servidor. Portanto, as interações com permissões reais, persistência no banco de produção, renderização desktop/mobile e alcance dos assets/CDN devem ser conferidos no deploy. O Gateway possui validação real separada da suíte local; veja a etapa de disponibilidade registrada em `KIRYU_2.0.md`.

@@ -2,6 +2,8 @@ const { createCooldownTracker } = require('../modules/cooldown');
 const { awardMessageXp, getGuildConfig } = require('../modules/xpService');
 const { findTrigger, chooseResponse } = require('../modules/triggers');
 const { notifyLevelUp } = require('../modules/levelUpNotifications');
+const { handleAIMessage } = require('../modules/aiConversation');
+const { replyMessageV2 } = require('../modules/components');
 const { handlePrefixMessage } = require('../handlers/commandHandler');
 const logger = require('../logger');
 
@@ -21,13 +23,20 @@ async function execute(message, client) {
 
   await handlePrefixMessage(message, client);
 
+  let cfg = guildConfig;
+  let response = null;
   try {
-    const cfg = guildConfig || await getGuildConfig(message.guildId);
-    const trigger = findTrigger(cfg.triggers, message.content);
-    const response = chooseResponse(trigger);
+    cfg ||= await getGuildConfig(message.guildId);
+    response = chooseResponse(findTrigger(cfg.triggers, message.content));
     if (response) await replyMessageV2(message, response);
   } catch {
     logger.warn('Falha ao verificar gatilhos personalizados.');
+  }
+
+  try {
+    await handleAIMessage(message, client, { guildConfig: cfg, hasDeterministicResponse: Boolean(response) });
+  } catch {
+    logger.warn('Falha ao processar a interação de IA.');
   }
 }
 

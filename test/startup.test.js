@@ -4,7 +4,7 @@ jest.mock('../src/database', () => ({
   closeDatabase: jest.fn(),
 }));
 
-const { Client } = require('discord.js');
+const { Client, Partials } = require('discord.js');
 const database = require('../src/database');
 const config = require('../src/config');
 const { createBot, shutdown } = require('../src');
@@ -59,6 +59,7 @@ describe('inicialização do bot', () => {
     const client = await createBot();
     expect(order).toEqual(['mongo-connect', 'database-init', 'discord-login']);
     expect(client.commands.size).toBe(17);
+    expect(client.options.partials).toContain(Partials.Message);
     expect(client.listenerCount('interactionCreate')).toBe(1);
     await shutdown(client);
     expect(database.closeDatabase).toHaveBeenCalled();

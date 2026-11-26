@@ -29,4 +29,9 @@ describe('árvore definitiva de comandos slash', () => {
     expect(names).not.toContain('economia');
     expect(commands.get('orbs').data.description).toContain('Orbes');
   });
+
+  test('/config aceita um anexo TXT opcional para importar o System Prompt', () => {
+    const config = commands.get('config').data.toJSON();
+    expect(config.options).toEqual([expect.objectContaining({ name: 'prompt_file', type: 11, required: false })]);
+  });
 });

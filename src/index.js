@@ -5,6 +5,8 @@ const { connectDatabase, initializeDatabase, closeDatabase } = require('./databa
 const { loadCommands } = require('./handlers/loadCommands');
 const { loadEvents } = require('./handlers/loadEvents');
 const { stopVoiceXp } = require('./modules/voiceXp');
+const { cancelAllRequests, waitForRequests } = require('./modules/aiGateway');
+const { clearConversationState } = require('./modules/aiConversation');
 
 function validateRuntimeConfig() {
   const missing = [];
@@ -28,7 +30,7 @@ async function createBot() {
       GatewayIntentBits.GuildMembers,
       GatewayIntentBits.GuildVoiceStates,
     ],
-    partials: [Partials.Channel],
+    partials: [Partials.Channel, Partials.Message],
   });
   client.config = config;
   client.commands = loadCommands();
@@ -40,6 +42,9 @@ async function createBot() {
 
 async function shutdown(client) {
   stopVoiceXp();
+  cancelAllRequests();
+  await waitForRequests();
+  clearConversationState();
   if (client) client.destroy();
   await closeDatabase().catch(() => {});
 }
