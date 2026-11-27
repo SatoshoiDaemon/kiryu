@@ -45,7 +45,8 @@ function transactionLabel(operation) {
 }
 
 const data = new SlashCommandBuilder().setName('money').setDescription('Carteira, banco e circulação de Fragmentos.')
-  .addSubcommand((sub) => sub.setName('balance').setDescription('Veja sua carteira, banco e inventário'))
+  .addSubcommand((sub) => sub.setName('balance').setDescription('Veja a carteira, o banco e o inventário de um membro')
+    .addUserOption((option) => option.setName('member').setDescription('Membro para consultar; vazio mostra sua conta').setRequired(false)))
   .addSubcommand((sub) => sub.setName('transfer').setDescription('Envie Fragmentos a alguém')
     .addUserOption((option) => option.setName('member').setDescription('Destinatário').setRequired(true))
     .addIntegerOption((option) => option.setName('amount').setDescription('Fragmentos a enviar').setMinValue(1).setMaxValue(1000000000000).setRequired(true)))
@@ -77,8 +78,9 @@ async function execute(interaction) {
   if (interaction.guildId !== config.guildId) return;
   const operation = interaction.options.getSubcommand();
   if (operation === 'balance') {
-    const account = await getAccount(interaction.guildId, interaction.user.id);
-    return respond(interaction, payload(walletContainer(interaction.user, account, interaction.user.id, true)));
+    const member = interaction.options.getUser('member') || interaction.user;
+    const account = await getAccount(interaction.guildId, member.id);
+    return respond(interaction, payload(walletContainer(member, account, interaction.user.id, member.id === interaction.user.id)));
   }
   if (operation === 'transfer') {
     const recipient = interaction.options.getUser('member');

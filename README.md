@@ -30,13 +30,13 @@ Nomes de comandos, grupos, subcomandos e opções são em inglês. Descrições,
 
 ### Economia e recompensas
 
-- `/money balance` — carteira e banco próprios.
+- `/money balance [member]` — carteira e banco próprios ou públicos do membro selecionado.
 - `/money transfer member amount` — transfere Fragmentos para outra pessoa.
 - `/money history [member] [page]` — histórico econômico; consultar outra pessoa exige permissão administrativa.
 - `/money deposit amount` e `/money withdraw amount` — move Fragmentos entre carteira e banco.
 - `/money leaderboard [category]` — rankings separados de carteira, banco e patrimônio total.
 - `/money audit` — reconcilia limites e operações pendentes e mostra casos comerciais que exigem revisão; equipe autorizada.
-- `/orbs balance` — consulta os seis saldos de Orbe.
+- `/orbs balance [member]` — consulta os seis saldos de Orbe próprios ou públicos do membro selecionado.
 - `/orbs convert` — abre a conversão para a categoria seguinte pela taxa definida em `/config`.
 - `/daily` — recompensa diária por data civil, com virada à meia-noite em `America/Sao_Paulo`.
 - `/work` — trabalho configurável; `/income adventure|crime|passive` acrescenta expedição, golpe fictício e coleta opcional de renda passiva.
@@ -63,6 +63,8 @@ Nomes de comandos, grupos, subcomandos e opções são em inglês. Descrições,
 - `/remind create|list|cancel` — lembretes persistentes por membro.
 - `/timestamp`, `/poll create|close`, `/choose options`, `/random min max`, `/calculate expression`, `/translate text to [from]`, `/color value [format]`, `/qr content` e `/afk [message]`.
 - `/dice expression` — rolagem recreativa independente do cassino; `/coinflip` também não altera saldos.
+
+Os comandos de prefixo continuam disponíveis como `$level [@member]`, `$choose opções`, `$roll expressão` e `$coinflip`.
 
 O Discord só admite `/xp level` como um grupo quando há um subcomando abaixo dele; por isso, a consulta aparece como `/xp level view`. `/inventory view` também identifica a consulta em uma árvore válida. A antiga rolagem `/roll` passa a ser `/dice`. A sincronização substitui em lote os **57 comandos** do servidor com a árvore carregada, removendo do registro ativo os nomes obsoletos.
 

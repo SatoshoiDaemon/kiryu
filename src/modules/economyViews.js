@@ -221,21 +221,23 @@ function orbBalanceText(account) {
   return ORB_TYPES.map((type) => ORBS[type].sigil + ' **' + ORBS[type].label + '**: ' + Number(account.orbs?.[type] || 0).toLocaleString('pt-BR')).join('\n');
 }
 
-function orbsContainer(account, ownerId, notice = '') {
+function orbsContainer(account, ownerId, notice = '', allowControls = true, member = null) {
   const sourceOptions = ORB_TYPES.slice(0, -1).map((type) => ({
     label: ORBS[type].label,
     value: type,
     description: 'Converter pela taxa definida no painel de configuração',
     emoji: ORBS[type].emoji,
   }));
-  const select = new StringSelectMenuBuilder()
+  const rows = allowControls ? [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
     .setCustomId('econ:orbs:source:' + ownerId)
     .setPlaceholder('Selecione a Orbe de origem')
-    .addOptions(sourceOptions);
+    .addOptions(sourceOptions))] : [];
   const sections = ORB_TYPES.map((type) => resourceSection(ORBS[type].label, Number(account.orbs?.[type] || 0).toLocaleString('pt-BR') + ' Orbes', ORBS[type].sigil, 'orb-' + type));
-  return makeContainer({ text: (notice ? notice + '\n\n' : '') + '# Reliquário de Orbes\nCada categoria mantém seu próprio saldo. A conversão segue a taxa atual definida pela equipe.', sections, rows: [
-    new ActionRowBuilder().addComponents(select),
-  ], accentColor: config.visual.orbs });
+  const title = member ? 'Reliquário de ' + member.username : 'Reliquário de Orbes';
+  const instructions = allowControls
+    ? 'Cada categoria mantém seu próprio saldo. A conversão segue a taxa atual definida pela equipe.'
+    : 'Saldos públicos de Orbes do membro selecionado.';
+  return makeContainer({ text: (notice ? notice + '\n\n' : '') + '# ' + title + '\n' + instructions, sections, rows, accentColor: config.visual.orbs });
 }
 
 function collectContainer(rules, ownerId, page = 0) {

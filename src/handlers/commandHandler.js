@@ -16,6 +16,7 @@ const { handleExchangeInteraction } = require('../modules/exchangeInteractions')
 const { handleTradeInteraction } = require('../modules/tradeInteractions');
 const { handleAuctionInteraction } = require('../modules/auctionInteractions');
 const { handleGameRoomInteraction } = require('../modules/gameRoomInteractions');
+const legacyPrefixCommands = require('../modules/legacyPrefixCommands');
 
 async function processInteraction(interaction, client) {
   if (interaction.isChatInputCommand()) {
@@ -113,9 +114,10 @@ async function handlePrefixMessage(message, client) {
   if (!content) return;
   const [name, ...args] = content.split(/\s+/);
   const command = client.commands.get(name.toLowerCase());
-  if (!command?.executePrefix) return;
+  const executePrefix = command?.executePrefix || legacyPrefixCommands[name.toLowerCase()];
+  if (!executePrefix) return;
   try {
-    await command.executePrefix(message, args, client);
+    await executePrefix(message, args, client);
   } catch (error) {
     logger.error('Falha ao executar comando de texto ' + name.toLowerCase() + ' (' + errorDetails(error) + ').');
     await replyMessageV2(message, say('error')).catch(() => {});

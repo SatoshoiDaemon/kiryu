@@ -18,7 +18,8 @@ function adjustmentOptions(sub, min = 1) {
 }
 
 const data = new SlashCommandBuilder().setName('orbs').setDescription('Consulte, converta e administre Orbes.')
-  .addSubcommand((sub) => sub.setName('balance').setDescription('Consulte suas categorias de Orbes'))
+  .addSubcommand((sub) => sub.setName('balance').setDescription('Consulte as categorias de Orbes de um membro')
+    .addUserOption((option) => option.setName('member').setDescription('Membro para consultar; vazio mostra suas Orbes').setRequired(false)))
   .addSubcommand((sub) => sub.setName('convert').setDescription('Converta Orbes pela taxa definida pela equipe'))
   .addSubcommand((sub) => adjustmentOptions(sub.setName('add').setDescription('Adiciona Orbes a um membro')))
   .addSubcommand((sub) => adjustmentOptions(sub.setName('remove').setDescription('Remove Orbes de um membro')))
@@ -39,8 +40,10 @@ async function execute(interaction) {
     await replyV2(interaction, '# Orbes atualizadas\n' + member + '\n**' + ORBS[type].emoji + ' ' + ORBS[type].label + ':** ' + account.orbs[type].toLocaleString('pt-BR'), { ephemeral: true, accentColor: config.visual.orbs });
     return;
   }
-  const account = await getAccount(interaction.guildId, interaction.user.id);
-  await respond(interaction, payload(orbsContainer(account, interaction.user.id), true));
+  const member = operation === 'balance' ? interaction.options.getUser('member') || interaction.user : interaction.user;
+  const ownBalance = member.id === interaction.user.id;
+  const account = await getAccount(interaction.guildId, member.id);
+  await respond(interaction, payload(orbsContainer(account, interaction.user.id, '', ownBalance, member), false));
 }
 
-module.exports = { data, execute, deferEphemeral: true };
+module.exports = { data, execute };
